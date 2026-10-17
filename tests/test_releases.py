@@ -132,10 +132,11 @@ class InstallationTests(unittest.TestCase):
         run.side_effect = self.fake_command
         install(self.config, self.store, Release("4.0.0b7"))
         target = self.config.installations_dir / "release-4.0.0b7"
-        (target / "supervisor-installation.json").write_text("{}")
         run.reset_mock()
-        with self.assertRaisesRegex(ReleaseError, "metadata"):
-            install(self.config, self.store, Release("4.0.0b7"))
+        for content in ("{}", "[]"):
+            (target / "supervisor-installation.json").write_text(content)
+            with self.assertRaisesRegex(ReleaseError, "metadata"):
+                install(self.config, self.store, Release("4.0.0b7"))
         run.assert_not_called()
         other = self.config.installations_dir / "release-9.0.0"
         other.mkdir()

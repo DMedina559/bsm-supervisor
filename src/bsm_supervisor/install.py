@@ -79,7 +79,8 @@ def install(config: Config, store: Store, release: Release) -> dict:
                 raise ReleaseError("Registered installation path or version changed")
             manifest = json.loads((target / "supervisor-installation.json").read_text())
             if (
-                manifest.get("source") != "pypi"
+                not isinstance(manifest, dict)
+                or manifest.get("source") != "pypi"
                 or manifest.get("version") != release.version
                 or manifest.get("path") != str(target)
                 or manifest.get("index") != INDEX
