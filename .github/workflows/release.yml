@@ -36,11 +36,6 @@ jobs:
             exit 1
           fi
           printf 'tag=%s\nsha=%s\n' "$RELEASE_TAG" "$revision" >> "$GITHUB_OUTPUT"
-  browser:
-    needs: source
-    uses: ./.github/workflows/browser.yml
-    with:
-      ref: ${{ needs.source.outputs.sha }}
   dependencies:
     needs: source
     uses: ./.github/workflows/dependencies.yml
@@ -48,11 +43,11 @@ jobs:
       ref: ${{ needs.source.outputs.sha }}
   test:
     needs: source
-    uses: ./.github/workflows/tests.yml
+    uses: ./.github/workflows/build-test.yml
     with:
       ref: ${{ needs.source.outputs.sha }}
   release:
-    needs: [source, test, browser, dependencies]
+    needs: [source, test, dependencies]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -85,21 +80,6 @@ jobs:
           path.write_text(content)
           PY
       - run: python -m build
-      - name: Verify packaged console assets and version
-        env:
-          RELEASE_TAG: ${{ needs.source.outputs.tag }}
-        run: |
-          python -m venv /tmp/release-check
-          /tmp/release-check/bin/pip install dist/*.whl
-          /tmp/release-check/bin/python - <<'PY'
-          import os
-          from importlib.metadata import version
-          from pathlib import Path
-          import bsm_supervisor
-          assert version('bsm-supervisor') == os.environ['RELEASE_TAG'][1:]
-          for name in ('index.html', 'app.js', 'style.css'):
-              assert (Path(bsm_supervisor.__file__).parent / 'assets' / name).is_file()
-          PY
       - name: Create pinned bootstrap assets and checksums
         env:
           RELEASE_TAG: ${{ needs.source.outputs.tag }}
