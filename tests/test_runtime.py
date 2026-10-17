@@ -79,6 +79,46 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(runtime.RuntimeErrorBase, "version"):
             runtime.ready(self.config, "4.0.0b7")
 
+    @patch("bsm_supervisor.runtime.SystemdService")
+    @patch("bsm_supervisor.runtime.control_record")
+    @patch("bsm_supervisor.runtime.request")
+    def test_local_readiness_needs_no_user_token(self, request, record, service):
+        from dataclasses import replace
+
+        config = replace(self.config, api_token_file=None)
+        service.return_value.status.return_value = {"ActiveState": "active"}
+        record.return_value = {**self.record, "readiness_token": "local-readiness"}
+        request.return_value = {
+            "runtime": {
+                "instance_id": self.record["instance_id"],
+                "pid": self.record["pid"],
+                "phase": "ready",
+                "shutdown_requested": False,
+            },
+            "version": "4.0.0b7",
+            "health": self.healthy(),
+        }
+        self.assertTrue(runtime.ready(config, "4.0.0b7")["ready"])
+        request.assert_called_once_with(
+            record.return_value, "/api/runtime/readiness", readiness=True
+        )
+        request.return_value["runtime"]["instance_id"] = "different"
+        with self.assertRaisesRegex(runtime.RuntimeErrorBase, "different"):
+            runtime.ready(config, "4.0.0b7")
+
+    @patch("bsm_supervisor.runtime.SystemdService")
+    @patch("bsm_supervisor.runtime.control_record")
+    @patch("bsm_supervisor.runtime.request")
+    def test_rejected_local_credential_never_falls_back_to_user_token(
+        self, request, record, service
+    ):
+        service.return_value.status.return_value = {"ActiveState": "active"}
+        record.return_value = {**self.record, "readiness_token": "local-readiness"}
+        request.side_effect = runtime.AuthenticationError("rejected")
+        with self.assertRaises(runtime.AuthenticationError):
+            runtime.ready(self.config, "4.0.0b7")
+        request.assert_called_once()
+
     @patch("bsm_supervisor.runtime.ready")
     def test_invalid_credentials_fail_without_startup_retry(self, ready):
         ready.side_effect = runtime.AuthenticationError("credential rejected")
@@ -107,6 +147,7 @@ class RuntimeTests(unittest.TestCase):
         self.record["created_at"] = boot + 100 / os.sysconf("SC_CLK_TCK")
         path = self.config.config_dir / "web_server.control.json"
         path.write_text(json.dumps(self.record))
+        path.chmod(0o600)
         command = (
             b"python\0-m\0bedrock_server_manager\0--config-dir\0"
             + str(self.config.config_dir).encode()

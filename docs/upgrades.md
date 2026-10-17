@@ -12,14 +12,29 @@ The unit uses both a persistent restore marker and an upgrade launch guard. Duri
 
 The controller normally runs as root inside the LXC. It creates protected, credential-free permit records below /run/bsm-supervisor. Permission failures are checked before the upgrade stops BSM.
 
-Configure a private file containing an existing BSM bearer token:
+BSM versions that publish a `readiness_token` in their private runtime record
+support automatic local readiness authentication. No user account or bearer-token
+setup is required for these versions. The supervisor verifies the record's
+permissions, owner and process identity, then calls the loopback-only readiness
+endpoint with its separate read-only credential. It never uses that credential
+for shutdown or general application access.
+
+Older BSM versions require a private file containing a user bearer token:
 
     api_token_file = "/var/lib/bsm-supervisor/bsm-api.token"
     readiness_timeout = 60
 
-Set permissions to 0600. The token needs access to GET /api/health; a dedicated ordinary BSM user can supply readiness access. Graceful shutdown uses the private local runtime token, not this user's administrator privileges.
+Set permissions to 0600. The token needs access to `GET /api/health`; a dedicated
+ordinary BSM user can supply readiness access. Complete first-user setup before
+creating this token. Check `health` before maintenance to verify compatibility
+and authentication. New local readiness support is developed on the backend
+`feat/local-runtime-readiness` branch; older published releases still need the
+user token until that feature is released.
 
-Tokens are never included in workflow journals, CLI output, or request errors. Health and shutdown requests use verified loopback endpoints, disable proxy inheritance, and refuse redirects. Refresh an expired/revoked bearer token before proceeding.
+Graceful shutdown uses the separate private shutdown credential. Tokens are
+never included in workflow journals, CLI output, or request errors. Requests use
+verified loopback endpoints, disable proxy inheritance, and refuse redirects.
+A rejected local readiness credential fails without falling back to a user token.
 
 Runtime identity verification requires matching systemd PID, process generation, configuration, command line, and local control record. An older or unverifiable control record fails closed. There is no automatic forced-termination fallback.
 

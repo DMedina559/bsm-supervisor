@@ -88,12 +88,14 @@ dependencies; it does not overwrite an existing environment or change selection.
 An unregistered directory is retained for inspection.
 
 Replace `INSTALLATION_ID` with the ID printed by `installations`. No user bearer
-token is needed for this initial startup. Finish BSM's own
-initial account/setup flow, then create a BSM bearer token for authenticated
-readiness. Save it as a root-owned regular file with mode 0600, and set
-`api_token_file` in supervisor configuration. The installer cannot create an
-application token before BSM has been initialized. BSM 4.0 is required for the
-coordinated upgrade and runtime shutdown flow.
+token is needed for initial startup. Finish BSM's first-user setup in the browser.
+
+BSM versions with local runtime readiness support need no additional supervisor
+credential setup. Older versions require a BSM user bearer token saved in a
+root-owned regular file with mode 0600; set `api_token_file` to that path.
+See [readiness authentication](upgrades.md#configure-readiness-and-startup-control)
+for compatibility and the backend feature's release status. BSM 4.0 is required
+for coordinated upgrades and runtime shutdown.
 
 ## Git upgrades
 

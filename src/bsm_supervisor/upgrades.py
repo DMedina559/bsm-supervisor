@@ -288,12 +288,13 @@ def upgrade(
         raise ValueError(
             "Choose a newer release or explicitly allow same-version repair"
         )
-    runtime.bearer(config)
     _runtime_directory(config)
     state = SystemdService(config).status()
     require_managed(config, state)
     if state.get("ActiveState") not in ("active", "inactive"):
         raise ValueError("Upgrade requires an active or cleanly inactive service")
+    if state.get("ActiveState") == "active":
+        runtime.ready(config, original["version"])
     with store.workflow() as workflow_id:
         plan = {
             "id": workflow_id,
@@ -315,8 +316,6 @@ def upgrade(
         }
         _save(config, plan)
         try:
-            if plan["was_running"]:
-                runtime.ready(config, original["version"])
             report = inspect(config)
             if report["blockers"]:
                 raise ValueError("; ".join(report["blockers"]))
@@ -368,7 +367,6 @@ def recover(config: Config, store: Store, workflow_id: int, action: str) -> dict
     """Resume a target or explicitly restore a checkpoint and the original version."""
     if action not in ("resume", "restore", "cancel"):
         raise ValueError("Unknown upgrade recovery action")
-    runtime.bearer(config)
     with store.workflow(workflow_id):
         if not _path(config, workflow_id).exists():
             if (

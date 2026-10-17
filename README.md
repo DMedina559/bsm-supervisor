@@ -60,7 +60,7 @@ bsm-supervisor graceful-stop
 bsm-supervisor start
 ```
 
-`health` requires a configured BSM bearer token. `graceful-stop` verifies the local BSM runtime identity and requests application shutdown. `start`, `stop`, and `restart` control systemd; a completed systemd job does not establish application readiness. Direct stop/restart follow the unit's shutdown behavior, so use graceful shutdown for planned maintenance.
+`health` uses the private local readiness credential on supported BSM versions; older versions require a configured user bearer token. `graceful-stop` verifies the local BSM runtime identity and requests application shutdown. `start`, `stop`, and `restart` control systemd; a completed systemd job does not establish application readiness. Direct stop/restart follow the unit's shutdown behavior, so use graceful shutdown for planned maintenance.
 
 ## Recovery and storage
 

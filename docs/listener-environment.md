@@ -94,7 +94,8 @@ Local file-backed SQLite remains required for supervisor checkpoints and coordin
 upgrade recovery. External database URLs can be passed to BSM, but their driver
 extras must be installed in the selected BSM environment and checkpoint workflows
 refuse them. URI/query SQLite options and uncovered database files are also
-rejected by checkpoint inspection. Readiness tokens still use `api_token_file`.
+rejected by checkpoint inspection. Older BSM versions use `api_token_file` for readiness; versions with local
+readiness support use the private runtime credential automatically.
 
 ## Apply changed settings
 

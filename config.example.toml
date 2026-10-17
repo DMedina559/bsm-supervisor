@@ -19,7 +19,7 @@ bsm_log_level = "INFO"
 checkpoint_paths = []
 # Example: checkpoint_paths = ["/mnt/bedrock-servers", "/mnt/bsm-content"]
 
-# Required for authenticated application readiness during coordinated upgrades.
+# Required for readiness on older BSM versions without local readiness support.
 # Store a BSM bearer token in this private regular file (permissions 0600).
 # api_token_file = "/var/lib/bsm-supervisor/bsm-api.token"
 readiness_timeout = 60

@@ -51,8 +51,14 @@ def bearer(config: Config) -> str:
 def control_record(config: Config, status: dict[str, str]) -> dict:
     """Bind local credentials to the current systemd PID and its process generation."""
     path = config.config_dir / "web_server.control.json"
-    if not stat.S_ISREG(path.lstat().st_mode) or path.stat().st_size > 65536:
-        raise RuntimeErrorBase("Invalid BSM runtime control record")
+    info = path.lstat()
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_mode & 0o077
+        or info.st_uid != config.config_dir.stat().st_uid
+        or info.st_size > 65536
+    ):
+        raise RuntimeErrorBase("Invalid BSM runtime control record permissions")
     record = json.loads(path.read_text())
     if not isinstance(record, dict) or not isinstance(record.get("config_dir"), str):
         raise RuntimeErrorBase("Invalid BSM runtime control identity")
@@ -92,11 +98,25 @@ def control_record(config: Config, status: dict[str, str]) -> dict:
         record.get("instance_id"), str
     ):
         raise RuntimeErrorBase("Runtime record lacks its control identity")
+    if "readiness_token" in record:
+        credential = record["readiness_token"]
+        if (
+            not isinstance(credential, str)
+            or not credential
+            or len(credential) > 16384
+            or any(character.isspace() for character in credential)
+        ):
+            raise AuthenticationError("Invalid local readiness credential")
     return record
 
 
 def request(
-    record: dict, path: str, *, token: str | None = None, shutdown: bool = False
+    record: dict,
+    path: str,
+    *,
+    token: str | None = None,
+    shutdown: bool = False,
+    readiness: bool = False,
 ) -> dict:
     """Send one bounded loopback request without proxy or redirect forwarding."""
     host = record["host"]
@@ -106,6 +126,8 @@ def request(
     data = None
     if token is not None:
         headers["Authorization"] = "Bearer " + token
+    if readiness:
+        headers["X-BSM-Readiness-Token"] = record["readiness_token"]
     if shutdown:
         headers["X-BSM-Shutdown-Token"] = record["token"]
         headers["Content-Type"] = "application/json"
@@ -145,7 +167,24 @@ def ready(config: Config, expected_version: str) -> dict:
     if status.get("ActiveState") != "active":
         raise RuntimeErrorBase("BSM service is not active")
     record = control_record(config, status)
-    health = request(record, "/api/health", token=bearer(config))
+    if "readiness_token" in record:
+        payload = request(record, "/api/runtime/readiness", readiness=True)
+        identity = payload.get("runtime")
+        if (
+            not isinstance(identity, dict)
+            or identity.get("instance_id") != record["instance_id"]
+            or identity.get("pid") != record["pid"]
+            or identity.get("phase") != "ready"
+            or identity.get("shutdown_requested") is not False
+        ):
+            raise RuntimeErrorBase("Readiness belongs to a different or stopped runtime")
+        health = payload.get("health")
+        observed_version = payload.get("version")
+    else:
+        health = request(record, "/api/health", token=bearer(config))
+        observed_version = None
+    if not isinstance(health, dict):
+        raise RuntimeErrorBase("BSM readiness response lacks application health")
     checks = health.get("checks")
     if (
         health.get("ready") is not True
@@ -159,11 +198,11 @@ def ready(config: Config, expected_version: str) -> dict:
         )
     ):
         raise RuntimeErrorBase("BSM has not reached healthy application readiness")
-    info = request(record, "/api/info").get("info")
+    if "readiness_token" not in record:
+        info = request(record, "/api/info").get("info")
+        observed_version = info.get("app_version") if isinstance(info, dict) else None
     try:
-        matches = isinstance(info, dict) and Version(
-            info.get("app_version", "")
-        ) == Version(expected_version)
+        matches = Version(observed_version or "") == Version(expected_version)
     except (ValueError, TypeError):
         matches = False
     if not matches:
