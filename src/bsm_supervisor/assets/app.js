@@ -79,8 +79,8 @@ async function refresh() {
     const state = await request('state');
     if(currentSession!==session) return;
     el('service').dataset.state=state.service.error ? 'unavailable' : state.service.ActiveState;
-    el('service').textContent=state.service.error ? 'Service status unavailable. Run diagnostics to inspect the managed service.' : (state.service.ActiveState || 'unknown')+' · '+(state.service.SubState || 'unknown')+(state.service.MainPID && state.service.MainPID!=='0' ? ' · PID '+state.service.MainPID : '');
-    el('autostart-summary').textContent=state.autostart?.reason || '';
+    el('service').textContent=state.service.error ? 'Unavailable' : (state.service.ActiveState || 'unknown')+' · '+(state.service.SubState || 'unknown')+(state.service.MainPID && state.service.MainPID!=='0' ? ' · PID '+state.service.MainPID : '');
+    el('autostart-summary').textContent=state.service.error?'Cannot read the managed service. Run diagnostics to inspect it.':state.autostart?.reason || '';
     el('selected').textContent=state.selection ? 'Selected: '+state.selection.id+' · '+state.selection.version : 'No version selected';
     options('installation',state.installations,item=>item.id+' · '+item.version);
     options('checkpoint',state.checkpoints,item=>item.id+(item.invalid?' · invalid':''));
@@ -91,7 +91,8 @@ async function refresh() {
     el('jobs').replaceChildren(...state.jobs.map(item=>{
       const row=document.createElement('details'), summary=document.createElement('summary'), output=document.createElement('pre');
       row.className='row'; if(['running','interrupted'].includes(item.state)) row.dataset.running='true'; row.dataset.id=item.id; row.open=opened.has(item.id); summary.textContent=actionLabel(item.action)+' · '+item.state+' · '+item.id.slice(0,8);summary.title=item.id;
-      row.append(summary,output); if(['running','interrupted'].includes(item.state)){const acknowledge=document.createElement('button');acknowledge.className='action-button';acknowledge.textContent='Acknowledge after inspection';acknowledge.setAttribute('data-recovery-ack','');acknowledge.onclick=async()=>{if(!confirm('Confirm service and operation inspection? This only acknowledges console bookkeeping.'))return;try{await request('jobs/'+item.id+'/acknowledge',{confirmed:true});await refresh();}catch(error){el('error').textContent=error.message;}};row.append(acknowledge);} row.addEventListener('toggle',async()=>{if(row.open) {try {output.textContent=(await request('jobs/'+item.id)).output;} catch(error) {output.textContent=error.message;}}}); return row;
+      const identity=document.createElement('p');identity.className='job-identity';identity.textContent='Job '+item.id;
+      row.append(summary,identity,output); if(['running','interrupted'].includes(item.state)){const acknowledge=document.createElement('button');acknowledge.className='action-button';acknowledge.textContent='Acknowledge after inspection';acknowledge.setAttribute('data-recovery-ack','');acknowledge.onclick=async()=>{if(!confirm('Confirm service and operation inspection? This only acknowledges console bookkeeping.'))return;try{await request('jobs/'+item.id+'/acknowledge',{confirmed:true});await refresh();}catch(error){el('error').textContent=error.message;}};row.append(acknowledge);} row.addEventListener('toggle',async()=>{if(row.open) {try {output.textContent=(await request('jobs/'+item.id)).output;} catch(error) {output.textContent=error.message;}}}); return row;
     }));
     if(typeof renderAdmin==='function')renderAdmin(state);
     el('schedules').textContent=state.schedules.length ? JSON.stringify(state.schedules,null,2) : 'No schedules configured.';

@@ -154,7 +154,7 @@ dialog::backdrop { background: var(--bsm-overlay); backdrop-filter: blur(3px); }
  .summary-card { padding: 14px 12px; gap: 8px; }
  .summary-card strong { font-size: 17px; }
  .summary-icon { display: none; }
- .metric-caption { font-size: 9px; }
+ .metric-caption { font-size: 10px; }
  .panel { padding: 18px; }
  .panel .action-button, .form-input { min-height: 42px; }
  .form-input { font-size: 16px; }
@@ -165,3 +165,5 @@ dialog::backdrop { background: var(--bsm-overlay); backdrop-filter: blur(3px); }
  .field-pair { gap: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+
+.job-identity { font: 10px/1.6 var(--bsm-mono); color: var(--bsm-muted); overflow-wrap: anywhere; }

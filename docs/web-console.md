@@ -13,7 +13,7 @@ connection status separately from the BSM service status.
 Overview summarizes the managed service, selected build, saved checkpoints and
 operations that need inspection. Expand an operation to inspect its full detail;
 expanded history entries stay open during refresh. Console jobs show a short ID,
-with the complete ID available on hover and in their logs. Service controls,
+with the complete ID available on hover and inside the expanded entry. Service controls,
 version selection and recovery actions remain together under Overview.
 
 Backups & restore, Automation, Settings and Supervisor have dedicated workspaces.

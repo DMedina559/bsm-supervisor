@@ -64,6 +64,8 @@ test('administration sections, settings and schedule forms are responsive',async
  await login(page);
  for(const name of ['backups','automation','settings','system']){
   await page.locator('[data-section="'+name+'"]').click();await expect(page.locator('#page-'+name)).toBeVisible();
+  await expect(page.locator('[data-section][aria-current="page"]')).toHaveCount(1);
+  await expect(page.locator('[data-section="'+name+'"]')).toHaveAttribute('aria-current','page');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
   await page.screenshot({path:test.info().outputPath(name+'.png'),fullPage:true});
  }
