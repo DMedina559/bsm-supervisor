@@ -166,11 +166,21 @@ def _target(config: Config, store: Store, plan: dict) -> dict:
         (item for item in store.installations() if item["id"] == plan["target_id"]),
         None,
     )
+    if plan.get("target_source") == "git":
+        if target is None:
+            raise ValueError(
+                "Pinned Git installation is missing; restore it before resuming"
+            )
+        provenance = _git_provenance(config, target)
+        if provenance["commit"] != plan["target_commit"]:
+            raise ValueError("Git provenance changed since upgrade preparation")
     if target is None:
         install(config, store, Release(plan["target_version"]))
         target = next(
             item for item in store.installations() if item["id"] == plan["target_id"]
         )
+    if target["version"] != plan["target_version"]:
+        raise ValueError("Target version changed since upgrade preparation")
     _verify_environment(config, target)
     return target
 
@@ -223,11 +233,48 @@ def _failure(config: Config, store: Store, plan: dict, error: Exception) -> None
     # Keep marker, checkpoint, and workflow unresolved. Data restoration is explicit.
 
 
+def _git_provenance(config: Config, item: dict) -> dict:
+    from .git_sources import UPSTREAM, validate_ref
+
+    target = config.installations_dir.resolve() / item["id"]
+    if target.resolve(strict=True) != target or str(target) != item["path"]:
+        raise ValueError("Git installation path differs from its registry")
+    manifest = read_json(target / "supervisor-installation.json")
+    commit = validate_ref("commit", manifest.get("commit", ""))
+    if (
+        manifest.get("source") != "git"
+        or manifest.get("upstream") != UPSTREAM
+        or item["id"] != "git-" + commit
+        or manifest.get("version") != item["version"]
+        or manifest.get("path") != item["path"]
+    ):
+        raise ValueError("Git installation provenance differs from its registry")
+    return manifest
+
+
 def upgrade(
-    config: Config, store: Store, selector: str, *, allow_same: bool = False
+    config: Config,
+    store: Store,
+    selector: str | None = None,
+    *,
+    allow_same: bool = False,
+    installation_id: str | None = None,
 ) -> dict:
     """Prepare a release, checkpoint stopped data, and require healthy startup."""
-    release = select(discover(), selector)
+    if (selector is None) == (installation_id is None):
+        raise ValueError("Choose a PyPI selector or a registered Git installation")
+    provenance = None
+    if installation_id is not None:
+        item = next(
+            (i for i in store.installations() if i["id"] == installation_id), None
+        )
+        if item is None:
+            raise ValueError("Git installation is not registered")
+        provenance = _git_provenance(config, item)
+        release = Release(item["version"])
+    else:
+        assert selector is not None
+        release = select(discover(), selector)
     original = selection(config, store)
     if original is None:
         raise ValueError("A registered selected installation is required")
@@ -253,7 +300,9 @@ def upgrade(
             "key": uuid4().hex,
             "phase": "preparing",
             "original": original,
-            "target_id": "release-" + release.version,
+            "target_id": installation_id or "release-" + release.version,
+            "target_source": "git" if provenance else "pypi",
+            "target_commit": provenance["commit"] if provenance else None,
             "target_version": release.version,
             "checkpoint_id": None,
             "was_running": state["ActiveState"] == "active",

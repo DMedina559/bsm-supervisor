@@ -46,7 +46,10 @@ def parser() -> argparse.ArgumentParser:
         "--channel", choices=("all", "stable", "prerelease"), default="all"
     )
     upgrade = commands.add_parser("upgrade")
-    upgrade.add_argument("selector", help="stable, prerelease, or exact version")
+    upgrade.add_argument(
+        "selector", nargs="?", help="stable, prerelease, or exact version"
+    )
+    upgrade.add_argument("--installation", help="Registered Git installation ID")
     upgrade.add_argument("--maintenance-confirmed", action="store_true", required=True)
     upgrade.add_argument("--accept-migrations", action="store_true", required=True)
     upgrade.add_argument("--allow-same-version", action="store_true")
@@ -146,7 +149,11 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 json.dumps(
                     upgrades.upgrade(
-                        config, store, args.selector, allow_same=args.allow_same_version
+                        config,
+                        store,
+                        args.selector,
+                        allow_same=args.allow_same_version,
+                        installation_id=args.installation,
                     ),
                     indent=2,
                 )

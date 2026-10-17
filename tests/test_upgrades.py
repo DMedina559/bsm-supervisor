@@ -121,6 +121,94 @@ class UpgradeTests(unittest.TestCase):
     def workflow_id(self):
         return self.store.workflows()[0]["id"]
 
+    def git_target(self):
+        from bsm_supervisor.git_sources import UPSTREAM
+
+        commit = "a" * 40
+        name = "git-" + commit
+        directory = self.config.installations_dir / name
+        (directory / "bin").mkdir(parents=True)
+        for file in ("bin/python", "bin/bedrock-server-manager", "pyvenv.cfg"):
+            (directory / file).touch()
+        self.store.register(name, "4.0.0b7", directory, self.config.installations_dir)
+        manifest = dict(
+            source="git",
+            upstream=UPSTREAM,
+            commit=commit,
+            version="4.0.0b7",
+            path=str(directory),
+        )
+        (directory / "supervisor-installation.json").write_text(json.dumps(manifest))
+        return name, directory, manifest
+
+    def test_git_upgrade_records_commit_and_uses_checkpoint_workflow(self):
+        name, _, manifest = self.git_target()
+        with patch(
+            "bsm_supervisor.upgrades.discover", side_effect=AssertionError("PyPI used")
+        ):
+            plan = upgrades.upgrade(self.config, self.store, installation_id=name)
+        self.assertEqual(plan["phase"], "completed")
+        self.assertEqual(plan["target_commit"], manifest["commit"])
+        self.assertEqual(selection(self.config, self.store)["id"], name)
+        self.assertIsNotNone(plan["checkpoint_id"])
+
+    def test_git_resume_refuses_changed_commit_and_recovers_pinned_target(self):
+        name, directory, manifest = self.git_target()
+        self.fail_readiness = True
+        with self.assertRaises(runtime.RuntimeErrorBase):
+            upgrades.upgrade(self.config, self.store, installation_id=name)
+        path = directory / "supervisor-installation.json"
+        path.write_text(json.dumps({**manifest, "commit": "b" * 40}))
+        self.fail_readiness = False
+        with self.assertRaisesRegex(ValueError, "provenance"):
+            upgrades.recover(self.config, self.store, self.workflow_id(), "resume")
+        path.write_text(json.dumps(manifest))
+        plan = upgrades.recover(self.config, self.store, self.workflow_id(), "resume")
+        self.assertEqual(plan["target_commit"], manifest["commit"])
+        self.assertEqual(plan["phase"], "completed")
+
+    def test_git_resume_never_downloads_a_missing_pinned_installation(self):
+        name, _, _ = self.git_target()
+        with patch(
+            "bsm_supervisor.upgrades.checkpoints.create",
+            side_effect=OSError("disk full"),
+        ):
+            with self.assertRaises(OSError):
+                upgrades.upgrade(self.config, self.store, installation_id=name)
+        with self.store.connect() as db:
+            db.execute("DELETE FROM installations WHERE id = ?", (name,))
+        with patch(
+            "bsm_supervisor.upgrades.install",
+            side_effect=AssertionError("Downloaded replacement"),
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "Pinned Git installation is missing"
+            ):
+                upgrades.recover(self.config, self.store, self.workflow_id(), "resume")
+        self.assertEqual(self.store.workflows()[0]["state"], "running")
+
+    def test_git_restore_returns_to_original_environment_and_data(self):
+        name, _, _ = self.git_target()
+        self.fail_readiness = True
+        with self.assertRaises(runtime.RuntimeErrorBase):
+            upgrades.upgrade(self.config, self.store, installation_id=name)
+        plan = upgrades.recover(self.config, self.store, self.workflow_id(), "restore")
+        self.assertEqual(plan["phase"], "rolled_back")
+        self.assertEqual(selection(self.config, self.store)["id"], "original")
+        self.assertEqual((self.config.data_dir / "world").read_text(), "old-world")
+
+    def test_git_target_must_be_registered_and_selector_is_exclusive(self):
+        for selector, identifier in (
+            (None, "missing"),
+            ("stable", "missing"),
+            (None, None),
+        ):
+            with self.assertRaises(ValueError):
+                upgrades.upgrade(
+                    self.config, self.store, selector, installation_id=identifier
+                )
+        self.assertEqual(self.store.workflows(), [])
+
     def test_success_protects_checkpoint_and_verifies_running_target(self):
         result = upgrades.upgrade(self.config, self.store, "4.0.0b7")
         self.assertEqual(result["phase"], "completed")

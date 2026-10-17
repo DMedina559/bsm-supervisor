@@ -20,8 +20,10 @@ environments are retained for inspection; this command does not delete them.
 
 Git installation does not stop BSM, select the environment, or run migrations.
 Use `activate ID --offline-confirmed` only during an offline maintenance window.
-The coordinated `upgrade` command currently selects PyPI releases; Git builds
-are not yet part of that automatic checkpoint/start/readiness workflow.
+Use `upgrade --installation git-FULL_COMMIT_SHA --maintenance-confirmed
+--accept-migrations` for the coordinated checkpoint/start/readiness workflow.
+The registered commit is pinned through recovery; branches are never re-resolved.
+See [LXC installation](install-lxc.md) for the full sequence.
 
 Remove an unused supervisor-created installation explicitly:
 
