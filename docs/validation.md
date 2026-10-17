@@ -75,3 +75,10 @@ The **Console browser tests** workflow uses Chrome provided by the hosted Ubuntu
 runner. Release publication requires the browser, dependency-audit and min/max
 Python jobs to succeed. Container and real proxy deployment validation remain
 part of the disposable host procedure.
+
+Provisioning tests exercise reusable profiles, cached-source verification,
+ownership markers, configuration drift and resume journals through fake Proxmox
+commands and the standalone journal implementation. Recovery tests cover live
+job leases, service-state drift, history pagination and update cancellation before
+publication. These checks do not substitute for provisioning on a real Proxmox
+host or validating Debian/Ubuntu installations on their target machines.

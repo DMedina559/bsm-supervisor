@@ -35,8 +35,8 @@ elif name == 'pvesm':
         print(os.environ['TEMPLATE_PATH'])
     else:
         print('Name Type Status Total Used Available %')
-        print('local-lvm lvmthin active 100 0 100 0%')
-        print('local dir active 100 0 100 0%')
+        print('local-lvm lvmthin active 100000000 0 100000000 0%')
+        print('local dir active 100000000 0 100000000 0%')
 elif name == 'pveam':
     if args[0] == 'available':
         print('system debian-12-standard_12.9-1_amd64.tar.zst')

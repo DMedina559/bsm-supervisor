@@ -26,6 +26,7 @@ from . import (
     console_admin,
     console_transfers,
     events,
+    recovery_console,
     scheduling,
     self_update,
 )
@@ -210,7 +211,10 @@ class Console:
             }
         except (OSError, RuntimeError) as exc:
             status = {"error": type(exc).__name__}
+        from .deployment import information
+
         return {
+            "deployment": information(self.config),
             "service": status,
             "autostart": self.auto_start,
             "settings": console_admin.settings(self.config),
@@ -223,7 +227,17 @@ class Console:
             "checkpoints": checkpoints.list_checkpoints(self.config),
             "schedules": scheduling.listing(self.config),
             "jobs": sorted(
-                (read_json(path) for path in self.jobs.glob("*.json")),
+                (
+                    {
+                        **read_json(path),
+                        "execution_state": (
+                            "active"
+                            if recovery_console.job_active(self.config, read_json(path))
+                            else "inactive"
+                        ),
+                    }
+                    for path in self.jobs.glob("*.json")
+                ),
                 key=lambda job: job.get("created_at", ""),
                 reverse=True,
             )[:50],
@@ -437,6 +451,41 @@ class Console:
                             path.rsplit("/", 1)[1],
                         )
                     ).encode()
+                elif path == "/api/history" and method == "GET":
+                    query = scope.get("query_string", b"").decode()
+                    if query and not re.fullmatch(r"before=[1-9][0-9]{0,14}", query):
+                        raise ValueError("Invalid history cursor")
+                    items = Store(self.config.state_dir).operations(
+                        int(query[7:]) if query else None
+                    )
+                    body = json.dumps(
+                        {
+                            "operations": items,
+                            "next_before": (
+                                items[-1]["id"] if len(items) == 100 else None
+                            ),
+                        }
+                    ).encode()
+                elif (
+                    re.fullmatch(r"/api/recovery/operations/[1-9][0-9]{0,14}", path)
+                    and method == "GET"
+                ):
+                    body = json.dumps(
+                        await asyncio.to_thread(
+                            recovery_console.inspect_operation,
+                            self.config,
+                            Store(self.config.state_dir),
+                            int(path.rsplit("/", 1)[1]),
+                        )
+                    ).encode()
+                elif path == "/api/recovery/update" and method == "GET":
+                    body = json.dumps(
+                        await asyncio.to_thread(
+                            recovery_console.inspect_update,
+                            self.config,
+                            self.config_path,
+                        )
+                    ).encode()
                 elif path == "/api/state" and method == "GET":
                     body = json.dumps(await asyncio.to_thread(self.snapshot)).encode()
                 elif path == "/api/events" and method == "GET":
@@ -463,6 +512,10 @@ class Console:
                 elif (
                     path == "/api/actions"
                     or re.fullmatch(r"/api/jobs/[0-9a-f]{32}/acknowledge", path)
+                    or re.fullmatch(
+                        r"/api/recovery/operations/[1-9][0-9]{0,14}/acknowledge", path
+                    )
+                    or path == "/api/recovery/update/cancel"
                 ) and method == "POST":
                     if headers.get("content-type") != "application/json":
                         status = 415
@@ -480,7 +533,40 @@ class Console:
                         value = json.loads(data)
                         if not isinstance(value, dict):
                             raise ValueError("Action request must be an object")
-                        if path.endswith("/acknowledge"):
+                        if path.startswith("/api/recovery/"):
+                            if (
+                                value.keys() != {"confirmed", "digest"}
+                                or value.get("confirmed") is not True
+                                or not re.fullmatch(
+                                    r"[0-9a-f]{64}", str(value.get("digest", ""))
+                                )
+                            ):
+                                raise ValueError(
+                                    "Inspect recovery state and confirm this action"
+                                )
+                            if not self.lock.acquire(blocking=False):
+                                raise BusyError("A console action is still running")
+                            try:
+                                if path.endswith("/cancel"):
+                                    await asyncio.to_thread(
+                                        recovery_console.cancel_update,
+                                        self.config,
+                                        Store(self.config.state_dir),
+                                        value["digest"],
+                                        self.config_path,
+                                    )
+                                else:
+                                    await asyncio.to_thread(
+                                        recovery_console.acknowledge_operation,
+                                        self.config,
+                                        Store(self.config.state_dir),
+                                        int(path.split("/")[4]),
+                                        value["digest"],
+                                    )
+                            finally:
+                                self.lock.release()
+                            body = b'{"acknowledged":true}'
+                        elif path.endswith("/acknowledge"):
                             if value != {"confirmed": True}:
                                 raise ValueError(
                                     "Confirm service and operation inspection"
@@ -601,7 +687,6 @@ def acknowledge(config: Config, store: Store, job_id: str) -> None:
         except BlockingIOError as exc:
             raise BusyError("Console job is still executing") from exc
         with store.lock():
-            store.require_idle()
             job = read_json(path)
             if job["state"] not in ("running", "interrupted"):
                 raise ValueError("Console job does not need acknowledgement")

@@ -215,8 +215,8 @@ raise SystemExit(0 if status=='200' else 22)
                 source = (
                     Path(__file__).resolve().parents[1] / "scripts" / name
                 ).read_text()
-                function = source.split("    github_download() {\n", 1)[1].split(
-                    "\n    }\n", 1
+                function = source.split("github_download() {\n", 1)[1].split(
+                    "\n}\n", 1
                 )[0]
                 url = (
                     "https://api.github.com/repos/DMedina559/bsm-supervisor/tarball/ref"

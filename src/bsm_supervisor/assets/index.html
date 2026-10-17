@@ -413,6 +413,7 @@
          <input class="form-input" id="recovery" inputmode="numeric"/>
         </label>
         <div class="buttons">
+         <button class="action-button" id="operation-inspect" data-recovery-ack>Inspect operation</button>
          <button class="action-button" data-action="upgrade-resume">
           Resume upgrade
          </button>
@@ -425,13 +426,14 @@
          <button class="action-button" data-action="restore-recover">
           Recover restore
          </button>
-         <button class="action-button" data-action="acknowledge">
+         <button class="action-button" id="operation-acknowledge" data-recovery-ack>
           Acknowledge interruption
          </button>
         </div>
         <p>
          Inspect the history and current service state before acknowledging anything. Acknowledgement does not restore data.
         </p>
+        <pre id="recovery-report" aria-live="polite">Inspect an operation to review its service state and events.</pre>
        </article>
       </div>
       <div class="activity-grid">
@@ -447,6 +449,8 @@
          </h2>
         </div>
         <div id="operations"></div>
+        <button class="action-button" id="history-more" data-recovery-ack>Load older history</button>
+        <div id="older-history"></div>
        </article>
        <article class="panel">
         <div class="panel-heading section-heading">
@@ -955,6 +959,7 @@
          </h2>
         </div>
         <p id="supervisor-version"></p>
+        <details><summary>Deployment and capabilities</summary><pre id="deployment-info"></pre></details>
         <button class="action-button" data-admin-action="supervisor-check">
          Check releases
         </button>
@@ -973,6 +978,8 @@
          <button class="action-button" id="supervisor-update">
           Update supervisor
          </button>
+         <button class="action-button" id="update-inspect" data-recovery-ack>Inspect pending update</button>
+         <button class="action-button" id="update-cancel" data-recovery-ack>Cancel uninstalled update</button>
          <button class="action-button" id="supervisor-resume">
           Resume update
          </button>
@@ -980,6 +987,7 @@
           Restart console
          </button>
         </div>
+        <pre id="update-report" aria-live="polite"></pre>
         <p class="hint">
          Finish jobs before restarting the console. After updating, restart the console to load its new code, then reload and reconnect. Custom service units require a host restart command.
         </p>

@@ -135,3 +135,42 @@ read permissions for `_apt`. Correct the specific inaccessible paths according
 to the distribution defaults; avoid recursive permission changes. If both lookups
 fail, inspect the container's DNS, route, bridge, and firewall configuration.
 Retry the retained bootstrap after resolving the failure.
+
+## Profiles and interrupted provisioning
+
+Reusable profiles are JSON data, never shell scripts. CLI options override profile
+values. A profile can contain `hostname`, `storage`, `template_storage`, `template`,
+`bridge`, `nameserver`, `vlan`, `cores`, `memory`, `swap`, `disk`, `onboot`, `ref`
+and `bsm_host`. Guest IDs, static addresses, gateways, tokens and BSM environment
+values are deliberately excluded. Keep environment files separate and private.
+
+```bash
+bash provision-proxmox.sh --profile ./small-server.json --ctid 120 --dry-run
+bash provision-proxmox.sh --profile ./small-server.json --ctid 120
+bash provision-proxmox.sh --ctid 121 --memory 4096 --save-profile ./small-server.json
+```
+
+`--save-profile` writes validated defaults with mode 0600 during a real run;
+`--dry-run` never writes a profile. Inspect the plan before creating a guest.
+
+Each real deployment stores a private journal and pinned source bundle in
+`/var/lib/bsm-supervisor/provisioning/CTID/`. Failed provisioning retains the
+container and its journal. Inspect the printed log and container state, then run:
+
+```bash
+bash provision-proxmox.sh --resume 120
+# If used originally, provide the same private environment JSON again:
+bash provision-proxmox.sh --resume 120 --bsm-env-file /root/bsm-environment.json
+```
+
+Resume requires the same host, settings, source bundle and environment values.
+The guest must have the deployment's ownership marker and unchanged configuration.
+An unrelated guest is never adopted. A previously created guest that was deleted
+is never recreated by resume. An interruption before creation can retry creation
+from the recorded plan. A completed deployment is verified and left alone.
+Configuration drift requires manual inspection; resume intentionally refuses it.
+
+Host install logs are private files under `/var/log/bsm-supervisor/`. Each log
+records named stages, failures, elapsed time and completion. The final output
+includes the journal path, observed container addresses and next commands. These
+addresses describe configuration; verify application readiness after BSM setup.

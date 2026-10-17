@@ -148,6 +148,7 @@ class ManagementTests(unittest.TestCase):
         origin=None,
         host="127.0.0.1:11326",
         raw=None,
+        query=b"",
     ):
         headers = [(b"host", host.encode()), (b"content-type", b"application/json")]
         if authenticated:
@@ -169,7 +170,13 @@ class ManagementTests(unittest.TestCase):
 
         async def invoke():
             await self.console(
-                {"type": "http", "method": method, "path": path, "headers": headers},
+                {
+                    "type": "http",
+                    "method": method,
+                    "path": path,
+                    "headers": headers,
+                    "query_string": query,
+                },
                 receive,
                 send,
             )

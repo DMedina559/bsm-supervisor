@@ -92,13 +92,15 @@ class Store:
                 for row in db.execute("SELECT * FROM installations ORDER BY id")
             ]
 
-    def operations(self) -> list[dict]:
+    def operations(self, before: int | None = None) -> list[dict]:
         """Return the latest operations, including unresolved interruptions."""
         with self.connect() as db:
             return [
                 dict(row)
                 for row in db.execute(
-                    "SELECT * FROM operations ORDER BY id DESC LIMIT 100"
+                    "SELECT * FROM operations WHERE (? IS NULL OR id < ?) "
+                    "ORDER BY id DESC LIMIT 100",
+                    (before, before),
                 )
             ]
 
