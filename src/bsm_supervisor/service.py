@@ -49,6 +49,17 @@ class SystemdService:
             raise ServiceError(f"Service is not installed: {self.unit}")
         return values
 
+    def reset_failed(self) -> None:
+        """Clear a stopped failure state before another managed start."""
+        state = self.status()
+        if (
+            state.get("ActiveState") != "failed"
+            or state.get("MainPID") != "0"
+            or state.get("Job") != ""
+        ):
+            raise ServiceError("Only a fully stopped failed service can be reset")
+        self._run(["reset-failed", self.unit])
+
     def control(self, action: str) -> None:
         """Request an explicit service action."""
         if action not in ("start", "stop", "restart"):
@@ -65,4 +76,14 @@ def managed_command(config: Config) -> str:
         f"{python} -I -m bedrock_server_manager "
         f"--config-dir {config.config_dir} --data-dir {config.data_dir} "
         "web start --mode direct"
+    )
+
+
+def guard_command(config: Config) -> str:
+    """Run the independently installed supervisor guard before starting BSM."""
+    import sys
+
+    return (
+        f"{sys.executable} -I -m bsm_supervisor.launchguard "
+        f"--config-dir {config.config_dir}"
     )

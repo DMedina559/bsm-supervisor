@@ -171,6 +171,7 @@ def create(config: Config, store: Store) -> dict:
                 "web_server.control.json",
                 "supervisor-maintenance.lock",
                 "supervisor-recovery.required",
+                "supervisor-upgrade.required",
             )
         }
         if database is not None:

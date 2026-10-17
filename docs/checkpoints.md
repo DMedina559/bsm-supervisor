@@ -102,4 +102,4 @@ The backend already exposes authenticated GET /api/health and POST /api/runtime/
 
 The BSM CLI loads application state before its web runtime lock, which can run migrations. Recovery tooling therefore must not launch that CLI merely to inspect or stop an unknown/broken installation. Future coordinated upgrades should use the independent service/API controls and explicit runtime identity checks.
 
-No backend changes were made for these checkpoint commands. Coordinated shutdown/readiness, automatic schema compatibility, update orchestration, Git installations, scheduling, provisioning, and the independent UI remain subsequent milestones.
+No backend changes were made for these checkpoint commands. [Coordinated upgrades](upgrades.md) now compose these operations with authenticated shutdown/readiness and durable workflow recovery. Automatic schema compatibility, Git installations, scheduling, provisioning, and the independent UI remain subsequent milestones.

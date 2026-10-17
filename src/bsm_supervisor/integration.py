@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .config import Config
-from .service import SystemdService, managed_command
+from .service import SystemdService, guard_command, managed_command
 
 BOOTSTRAP = "bedrock_server_manager.json"
 DATABASE = "bedrock-server-manager.db"
@@ -165,6 +165,11 @@ def require_offline(config: Config) -> None:
         or state.get("Job") != ""
     ):
         raise ValueError("BSM service must be inactive with no PID or pending job")
+    require_managed(config, state)
+
+
+def require_managed(config: Config, state: dict[str, str]) -> None:
+    """Validate launch and startup gates without requiring an inactive unit."""
     command = state.get("ExecStart", "")
     expected = managed_command(config)
     if (
@@ -175,6 +180,7 @@ def require_offline(config: Config) -> None:
             f"{config.config_dir}/supervisor-recovery.required ;"
         )
         not in state.get("ExecCondition", "")
+        or f"argv[]={guard_command(config)} ;" not in state.get("ExecCondition", "")
         or not {"BSM_DB_URL", "BSM_DATA_DIR", "BSM_CONFIG_DIR"}.issubset(
             state.get("UnsetEnvironment", "").split()
         )

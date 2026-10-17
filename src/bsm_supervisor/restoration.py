@@ -175,6 +175,7 @@ def restore(config: Config, store: Store, checkpoint_id: str) -> dict:
                     "web_server.lock",
                     "supervisor-maintenance.lock",
                     "supervisor-recovery.required",
+                    "supervisor-upgrade.required",
                 )
             }
 
@@ -255,6 +256,7 @@ def recover(config: Config, store: Store, operation_id: int) -> str:
     """Reconcile a committed restore or reverse attempted renames."""
     with store.lock(), offline_guard(config):
         with store.connect() as db:
+            store._check_workflow(db)
             row = db.execute(
                 "SELECT action, state FROM operations WHERE id = ?", (operation_id,)
             ).fetchone()

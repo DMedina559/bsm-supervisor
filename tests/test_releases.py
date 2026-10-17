@@ -16,7 +16,7 @@ from bsm_supervisor.releases import (
     discover,
     select,
 )
-from bsm_supervisor.service import managed_command
+from bsm_supervisor.service import guard_command, managed_command
 from bsm_supervisor.store import BusyError, Store
 
 
@@ -151,7 +151,8 @@ class InstallationTests(unittest.TestCase):
             "UnsetEnvironment": "BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR",
             "ExecCondition": (
                 "{ path=/usr/bin/test ; argv[]=/usr/bin/test ! -e "
-                f"{self.config.config_dir}/supervisor-recovery.required ; }}"
+                f"{self.config.config_dir}/supervisor-recovery.required ; }} "
+                f"{{ argv[]={guard_command(self.config)} ; }}"
             ),
             "ExecStart": "{ path=/usr/bin/flock ; argv[]="
             + managed_command(self.config)

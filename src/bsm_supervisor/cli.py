@@ -6,7 +6,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from . import checkpoints, restoration
+from . import checkpoints, restoration, runtime, upgrades
 from .activation import activate, selection, service_unit
 from .config import Config
 from .install import install
@@ -27,6 +27,9 @@ def parser() -> argparse.ArgumentParser:
         "check",
         "integration",
         "checkpoints",
+        "upgrades",
+        "health",
+        "graceful-stop",
         "init",
         "installations",
         "selection",
@@ -41,6 +44,20 @@ def parser() -> argparse.ArgumentParser:
     releases.add_argument(
         "--channel", choices=("all", "stable", "prerelease"), default="all"
     )
+    upgrade = commands.add_parser("upgrade")
+    upgrade.add_argument("selector", help="stable, prerelease, or exact version")
+    upgrade.add_argument("--maintenance-confirmed", action="store_true", required=True)
+    upgrade.add_argument("--accept-migrations", action="store_true", required=True)
+    upgrade.add_argument("--allow-same-version", action="store_true")
+    recovery = commands.add_parser("upgrade-recover")
+    recovery.add_argument("workflow_id", type=int)
+    recovery.add_argument(
+        "--action", choices=("resume", "restore", "cancel"), default="resume"
+    )
+    recovery.add_argument("--maintenance-confirmed", action="store_true", required=True)
+    recovery.add_argument("--restore-data-confirmed", action="store_true")
+    upgrade_status = commands.add_parser("upgrade-status")
+    upgrade_status.add_argument("workflow_id", type=int)
     installation = commands.add_parser("install")
     installation.add_argument("selector", help="stable, prerelease, or exact version")
     activation = commands.add_parser("activate")
@@ -111,7 +128,40 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(SystemdService(config).status(), indent=2))
             return 0
         store = Store(config.state_dir)
-        if args.command == "checkpoints":
+        if args.command == "upgrades":
+            print(json.dumps(store.workflows(), indent=2))
+        elif args.command == "upgrade-status":
+            print(json.dumps(upgrades.status(config, args.workflow_id), indent=2))
+        elif args.command == "upgrade":
+            print(
+                json.dumps(
+                    upgrades.upgrade(
+                        config, store, args.selector, allow_same=args.allow_same_version
+                    ),
+                    indent=2,
+                )
+            )
+        elif args.command == "upgrade-recover":
+            if args.action == "restore" and not args.restore_data_confirmed:
+                raise ValueError("Data restoration requires --restore-data-confirmed")
+            print(
+                json.dumps(
+                    upgrades.recover(config, store, args.workflow_id, args.action),
+                    indent=2,
+                )
+            )
+        elif args.command == "health":
+            current = selection(config, store)
+            if current is None:
+                raise ValueError(
+                    "Select a registered installation before checking readiness"
+                )
+            print(json.dumps(runtime.ready(config, current["version"]), indent=2))
+        elif args.command == "graceful-stop":
+            with store.mutation("service:graceful-stop", preserve_on_error=True):
+                runtime.shutdown(config)
+            print("BSM stopped gracefully")
+        elif args.command == "checkpoints":
             print(json.dumps(checkpoints.list_checkpoints(config), indent=2))
         elif args.command == "checkpoint-create":
             manifest = checkpoints.create(config, store)
@@ -181,6 +231,12 @@ def main(argv: list[str] | None = None) -> int:
                 SystemdService(config).control(args.command)
             print(f"Service {args.command} completed")
         return 0
+    except KeyboardInterrupt:
+        print(
+            "Interrupted; inspect upgrades and history before continuing",
+            file=sys.stderr,
+        )
+        return 130
     except (
         OSError,
         ValueError,
@@ -188,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         ServiceError,
         BusyError,
         ReleaseError,
+        runtime.RuntimeErrorBase,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

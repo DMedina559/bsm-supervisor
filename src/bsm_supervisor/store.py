@@ -3,6 +3,7 @@
 import fcntl
 import re
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -18,9 +19,11 @@ class Store:
     def __init__(self, state_dir: Path) -> None:
         state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.path = state_dir / "supervisor.sqlite3"
+        self._lock_owner: int | None = None
+        self._workflow_id: int | None = None
         with self.connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise ValueError(f"Unsupported supervisor database version: {version}")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS installations (
@@ -42,8 +45,23 @@ class Store:
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS one_running_operation
                     ON operations(state) WHERE state = 'running';
-                PRAGMA user_version = 1;
+                CREATE TABLE IF NOT EXISTS workflows (
+                    id INTEGER PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK
+                        (state IN ('running', 'succeeded', 'failed')),
+                    created_at TEXT NOT NULL DEFAULT
+                        (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    finished_at TEXT,
+                    detail TEXT NOT NULL DEFAULT ''
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS one_running_workflow
+                    ON workflows(state) WHERE state = 'running';
             """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(operations)")}
+            if "workflow_id" not in columns:
+                db.execute("ALTER TABLE operations ADD COLUMN workflow_id INTEGER")
+            db.execute("PRAGMA user_version = 2")
         self.path.chmod(0o600)
 
     @contextmanager
@@ -78,11 +96,13 @@ class Store:
 
     def begin(self, action: str) -> int:
         """Claim the single mutation slot across processes."""
-        with self.connect() as db:
+        with self.lock(), self.connect() as db:
+            self._check_workflow(db)
             try:
                 cursor = db.execute(
-                    "INSERT INTO operations(action, state) VALUES (?, 'running')",
-                    (action,),
+                    "INSERT INTO operations(action, state, workflow_id) "
+                    "VALUES (?, 'running', ?)",
+                    (action, self._workflow_id),
                 )
             except sqlite3.IntegrityError as exc:
                 raise BusyError(
@@ -109,6 +129,10 @@ class Store:
     @contextmanager
     def lock(self) -> Iterator[None]:
         """Exclude concurrent commands, including interruption acknowledgement."""
+        owner = threading.get_ident()
+        if self._lock_owner == owner:
+            yield
+            return
         with (self.path.parent / "operation.lock").open(
             "a", encoding="utf-8"
         ) as stream:
@@ -116,9 +140,11 @@ class Store:
                 fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
                 raise BusyError("Another supervisor mutation is in progress") from exc
+            self._lock_owner = owner
             try:
                 yield
             finally:
+                self._lock_owner = None
                 fcntl.flock(stream, fcntl.LOCK_UN)
 
     @contextmanager
@@ -145,6 +171,7 @@ class Store:
         Call only while no other supervisor command is running.
         """
         with self.lock(), self.connect() as db:
+            self._check_workflow(db)
             row = db.execute(
                 "SELECT action FROM operations WHERE id = ? AND state = 'running'",
                 (operation_id,),
@@ -192,4 +219,93 @@ class Store:
             db.execute(
                 "UPDATE operations SET detail = ? WHERE id = ? AND state = 'running'",
                 (detail, operation_id),
+            )
+
+    def _check_workflow(self, db: sqlite3.Connection) -> None:
+        row = db.execute("SELECT id FROM workflows WHERE state = 'running'").fetchone()
+        if row is not None and (
+            row["id"] != self._workflow_id or self._lock_owner != threading.get_ident()
+        ):
+            raise BusyError(
+                "An interrupted upgrade blocks mutations; use upgrade-recover"
+            )
+
+    def workflows(self) -> list[dict]:
+        """Return durable workflow summaries."""
+        with self.connect() as db:
+            return [
+                dict(row)
+                for row in db.execute(
+                    "SELECT * FROM workflows ORDER BY id DESC LIMIT 100"
+                )
+            ]
+
+    def workflow_operations(self, workflow_id: int) -> list[dict]:
+        """Return steps associated with one upgrade."""
+        with self.connect() as db:
+            return [
+                dict(row)
+                for row in db.execute(
+                    "SELECT * FROM operations WHERE workflow_id = ? ORDER BY id",
+                    (workflow_id,),
+                )
+            ]
+
+    @contextmanager
+    def workflow(self, workflow_id: int | None = None) -> Iterator[int]:
+        """Own one workflow and its child mutations under a process/thread lock."""
+        with self.lock():
+            if self._workflow_id is not None:
+                raise BusyError("Nested workflows are not supported")
+            with self.connect() as db:
+                if workflow_id is None:
+                    if (
+                        db.execute(
+                            "SELECT 1 FROM workflows WHERE state = 'running'"
+                        ).fetchone()
+                        or db.execute(
+                            "SELECT 1 FROM operations WHERE state = 'running'"
+                        ).fetchone()
+                    ):
+                        raise BusyError("Resolve the pending operation/workflow first")
+                    cursor = db.execute(
+                        "INSERT INTO workflows(kind, state) "
+                        "VALUES ('upgrade', 'running')"
+                    )
+                    assert cursor.lastrowid is not None
+                    workflow_id = cursor.lastrowid
+                else:
+                    row = db.execute(
+                        "SELECT state, kind FROM workflows WHERE id = ?", (workflow_id,)
+                    ).fetchone()
+                    if (
+                        row is None
+                        or row["state"] != "running"
+                        or row["kind"] != "upgrade"
+                    ):
+                        raise ValueError("Upgrade is not pending recovery")
+            self._workflow_id = workflow_id
+            try:
+                yield workflow_id
+            finally:
+                self._workflow_id = None
+
+    def finish_workflow(self, workflow_id: int, state: str, detail: str) -> None:
+        """Complete a workflow after all child operations have resolved."""
+        if (
+            state not in ("succeeded", "failed")
+            or self._workflow_id != workflow_id
+            or self._lock_owner != threading.get_ident()
+        ):
+            raise ValueError("Workflow completion requires its owning context")
+        with self.connect() as db:
+            if db.execute(
+                "SELECT 1 FROM operations WHERE state = 'running'"
+            ).fetchone():
+                raise BusyError("A workflow step still requires recovery")
+            db.execute(
+                "UPDATE workflows SET state = ?, detail = ?, "
+                "finished_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ? AND state = 'running'",
+                (state, detail, workflow_id),
             )

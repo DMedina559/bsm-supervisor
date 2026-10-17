@@ -2,11 +2,13 @@
 
 import os
 import re
+import sys
 import uuid
+from pathlib import Path
 
 from .config import Config
 from .integration import offline_guard
-from .service import managed_command
+from .service import guard_command, managed_command
 from .store import Store
 
 
@@ -15,12 +17,18 @@ def service_unit(config: Config, user: str) -> str:
     if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user):
         raise ValueError("Invalid service account")
     # Restrict rendering instead of guessing systemd escaping for arbitrary paths.
-    for path in (config.installations_dir, config.data_dir, config.config_dir):
+    for path in (
+        config.installations_dir,
+        config.data_dir,
+        config.config_dir,
+        Path(sys.executable),
+    ):
         if not re.fullmatch(r"/[A-Za-z0-9_./-]+", str(path)):
             raise ValueError(
                 "Unit rendering requires paths without spaces or special characters"
             )
     command = managed_command(config)
+    guard = guard_command(config)
     return f"""[Unit]
 Description=Bedrock Server Manager (BSM Supervisor)
 After=network.target
@@ -32,6 +40,7 @@ Type=simple
 User={user}
 WorkingDirectory={config.data_dir}
 ExecCondition=/usr/bin/test ! -e {config.config_dir}/supervisor-recovery.required
+ExecCondition={guard}
 ExecStart={command}
 Restart=on-failure
 RestartSec=10

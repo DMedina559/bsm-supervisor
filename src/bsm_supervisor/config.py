@@ -17,6 +17,8 @@ class Config:
     service_timeout: int = 240
     bsm_config_dir: Path | None = None
     checkpoint_paths: tuple[Path, ...] = ()
+    api_token_file: Path | None = None
+    readiness_timeout: int = 60
 
     @property
     def config_dir(self) -> Path:
@@ -48,6 +50,13 @@ class Config:
                     raise ValueError(
                         "Checkpoint paths must not overlap supervisor paths"
                     )
+        if self.api_token_file is not None and not self.api_token_file.is_absolute():
+            raise ValueError("api_token_file must be absolute")
+        if (
+            type(self.readiness_timeout) is not int
+            or not 1 <= self.readiness_timeout <= 3600
+        ):
+            raise ValueError("readiness_timeout must be an integer from 1 to 3600")
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.service", self.service_unit):
             raise ValueError("service_unit must be a plain systemd service name")
         if (
@@ -69,6 +78,8 @@ class Config:
             "service_timeout",
             "bsm_config_dir",
             "checkpoint_paths",
+            "api_token_file",
+            "readiness_timeout",
         }
         unknown = values.keys() - allowed
         if unknown:
@@ -80,6 +91,10 @@ class Config:
             if not isinstance(value, str) or not value:
                 raise ValueError(f"{key} must be a nonempty absolute path")
             values[key] = Path(value)
+        if "api_token_file" in values:
+            if not isinstance(values["api_token_file"], str):
+                raise ValueError("api_token_file must be an absolute path")
+            values["api_token_file"] = Path(values["api_token_file"])
         if "bsm_config_dir" in values:
             if not isinstance(values["bsm_config_dir"], str):
                 raise ValueError("bsm_config_dir must be an absolute path")

@@ -11,3 +11,8 @@ service_timeout = 240
 # Directories contained by data_dir/config_dir are already included.
 checkpoint_paths = []
 # Example: checkpoint_paths = ["/mnt/bedrock-servers", "/mnt/bsm-content"]
+
+# Required for authenticated application readiness during coordinated upgrades.
+# Store a BSM bearer token in this private regular file (permissions 0600).
+# api_token_file = "/var/lib/bsm-supervisor/bsm-api.token"
+readiness_timeout = 60

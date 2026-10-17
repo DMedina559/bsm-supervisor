@@ -2,7 +2,7 @@
 
 Installation, version management, updates, and recovery for [Bedrock Server Manager](https://github.com/DMedina559/bedrock-server-manager).
 
-**Status: early development.** The CLI supports release discovery, isolated installation, offline activation, verified SQLite/filesystem checkpoints, recoverable restoration, retention, and service controls. Application readiness, coordinated upgrades, deployment automation, Git sources, scheduling, and the web interface remain in scope for later milestones.
+**Status: early development.** The CLI supports release discovery, isolated installation, authenticated readiness and graceful shutdown, checkpoint-protected upgrades/recovery, offline activation, verified SQLite/filesystem checkpoints, retention, and durable workflow history. Deployment automation, Git sources, scheduling, and the independent web interface remain in scope for later milestones.
 
 ## Run the foundation
 
@@ -79,7 +79,7 @@ Before selecting a different version against existing data, establish schema com
 
 The generated service acquires a shared maintenance lock before Python starts; offline supervisor operations hold it exclusively. This prevents a managed startup from migrating the database during capture, restore, or activation. Offline confirmation still covers unmanaged BSM processes, standalone CLI mutations, Minecraft processes, and other writers outside that service. Do not launch those during maintenance.
 
-If you generated a unit before checkpoint support was added, regenerate/review it and run systemctl daemon-reload before using activation or checkpoint commands. The service now uses /usr/bin/flock from util-linux, checks a persistent recovery marker before startup, and unsets BSM_DB_URL, BSM_DATA_DIR, and BSM_CONFIG_DIR environment overrides.
+If you generated a unit before checkpoint support was added, regenerate/review it and run systemctl daemon-reload before using activation or checkpoint commands. The service now uses /usr/bin/flock from util-linux, checks persistent recovery/upgrade markers through the independently installed supervisor launch guard, and unsets BSM_DB_URL, BSM_DATA_DIR, and BSM_CONFIG_DIR environment overrides.
 
 ## Checkpoints and recovery
 
@@ -92,6 +92,19 @@ If you generated a unit before checkpoint support was added, regenerate/review i
 Checkpoints cover the declared BSM data/configuration roots and configured external directories. The inspector reads stored BSM paths and rejects incomplete coverage, unknown/uninitialized database layouts, and unsupported database backends. Capture requires a stopped managed service and an initialized local SQLite database.
 
 See [Checkpoint operations](docs/checkpoints.md) for restoration, interruption recovery, retention, supported filesystem metadata, and deployment limitations.
+
+## Coordinated upgrades
+
+Configure api_token_file with a private BSM bearer token file (0600), install the supervisor package into its own environment, and regenerate the service unit so its startup guard is available to the BSM service account.
+
+    bsm-supervisor --config config.toml health
+    bsm-supervisor --config config.toml upgrade prerelease --maintenance-confirmed --accept-migrations
+    bsm-supervisor --config config.toml upgrades
+    bsm-supervisor --config config.toml upgrade-status UPGRADE_ID
+
+An upgrade stages the release, gracefully stops BSM, creates/pins a checkpoint, selects the target, and verifies semantic readiness and running version. Failed/interrupted workflows block other mutations and retain explicit recovery options; data restoration is never automatic.
+
+See [Coordinated upgrades](docs/upgrades.md) for credentials, startup gating, retry/cancellation, checkpoint restoration, and current maintenance/deployment boundaries.
 
 ## Development checks
 
