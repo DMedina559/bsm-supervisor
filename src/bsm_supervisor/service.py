@@ -44,7 +44,13 @@ class SystemdService:
                 "MainPID,Result,ExecStart,ExecCondition,Job,UnsetEnvironment",
             ]
         )
-        values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+        values: dict[str, str] = {}
+        for line in output.splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            # systemctl emits a separate property line for each ExecCondition.
+            values[key] = values[key] + "\n" + value if key in values else value
         if values.get("LoadState") == "not-found":
             raise ServiceError(f"Service is not installed: {self.unit}")
         return values

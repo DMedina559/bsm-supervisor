@@ -12,7 +12,13 @@ from unittest.mock import patch
 
 from bsm_supervisor.cli import main
 from bsm_supervisor.config import Config
-from bsm_supervisor.service import ServiceError, SystemdService
+from bsm_supervisor.integration import require_managed
+from bsm_supervisor.service import (
+    ServiceError,
+    SystemdService,
+    guard_command,
+    managed_command,
+)
 from bsm_supervisor.store import BusyError, Store
 
 
@@ -146,6 +152,39 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs["timeout"], 240)
         with self.assertRaises(ValueError):
             service.control("enable")
+
+    @patch("bsm_supervisor.service.subprocess.run")
+    def test_repeated_systemd_conditions_are_retained_and_validated(self, run):
+        recovery = (
+            "{ path=/usr/bin/test ; argv[]=/usr/bin/test ! -e "
+            f"{self.config.config_dir}/supervisor-recovery.required ; "
+            "ignore_errors=no ; }"
+        )
+        guard = "{ argv[]=" + guard_command(self.config) + " ; ignore_errors=no ; }"
+        launch = (
+            "{ path=/usr/bin/flock ; argv[]="
+            + managed_command(self.config)
+            + " ; ignore_errors=no ; }"
+        )
+        for conditions in ((recovery, guard), (guard, recovery)):
+            output = (
+                "LoadState=loaded\nActiveState=inactive\nMainPID=0\nJob=\n"
+                + "\n".join("ExecCondition=" + item for item in conditions)
+                + "\nExecStart="
+                + launch
+                + "\nUnsetEnvironment=BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR\n"
+            )
+            run.return_value = subprocess.CompletedProcess([], 0, output, "")
+            state = SystemdService(self.config).status()
+            self.assertIn(recovery, state["ExecCondition"])
+            self.assertIn(guard, state["ExecCondition"])
+            require_managed(self.config, state)
+            for missing in (recovery, guard):
+                run.return_value = subprocess.CompletedProcess(
+                    [], 0, output.replace("ExecCondition=" + missing + "\n", ""), ""
+                )
+                with self.assertRaisesRegex(ValueError, "managed service"):
+                    require_managed(self.config, SystemdService(self.config).status())
 
     @patch("bsm_supervisor.service.subprocess.run")
     def test_missing_service_and_timeout(self, run):
