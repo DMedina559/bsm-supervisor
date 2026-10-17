@@ -1,0 +1,8 @@
+{
+  "BSM_CONFIG_DIR": "/srv/bsm/config",
+  "BSM_DATA_DIR": "/srv/bsm",
+  "BSM_DB_URL": "sqlite:////srv/bsm/config/bedrock-server-manager.db",
+  "BSM_LOG_LEVEL": "INFO",
+  "HOST": "0.0.0.0",
+  "PORT": "11325"
+}

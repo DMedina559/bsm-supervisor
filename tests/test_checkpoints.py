@@ -20,6 +20,7 @@ from bsm_supervisor.cli import main
 from bsm_supervisor.config import Config
 from bsm_supervisor.integration import inspect
 from bsm_supervisor.service import guard_command, managed_command
+from bsm_supervisor.service_environment import write_environment
 from bsm_supervisor.store import BusyError, Store
 
 
@@ -42,6 +43,7 @@ class CheckpointTests(unittest.TestCase):
                 INSERT INTO content VALUES ('saved');
             """)
         self.store = Store(self.config.state_dir)
+        write_environment(self.config)
         self.service = patch("bsm_supervisor.integration.SystemdService")
         self.mock_service = self.service.start()
         self.addCleanup(self.service.stop)
@@ -49,7 +51,12 @@ class CheckpointTests(unittest.TestCase):
             "ActiveState": "inactive",
             "MainPID": "0",
             "Job": "",
-            "UnsetEnvironment": "BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR",
+            "UnsetEnvironment": (
+                "BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR "
+                "BSM_PLUGIN_RECURSION_GUARD BSM_LOG_LEVEL"
+            ),
+            "EnvironmentFiles": str(self.config.state_dir / "bsm-runtime.env")
+            + " (ignore_errors=no)",
             "ExecCondition": (
                 "{ path=/usr/bin/test ; argv[]=/usr/bin/test ! -e "
                 f"{self.config.config_dir}/supervisor-recovery.required ; }} "

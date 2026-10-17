@@ -120,6 +120,17 @@ if [[ ! -e $config ]]; then
 fi
 "$version_dir/bin/bsm-supervisor" --config "$config" check
 "$version_dir/bin/bsm-supervisor" --config "$config" init
+"$version_dir/bin/python" -I - <<'PYSETUP'
+import os, pwd
+from pathlib import Path
+from bsm_supervisor.config import Config
+config = Config.load(Path('/etc/bsm-supervisor/config.toml'))
+account = pwd.getpwnam('bsm')
+for path in (config.data_dir, config.config_dir):
+    if not path.exists():
+        path.mkdir(mode=0o750, parents=True)
+        os.chown(path, account.pw_uid, account.pw_gid)
+PYSETUP
 service_unit=$("$version_dir/bin/python" -I -c 'from pathlib import Path; from bsm_supervisor.config import Config; print(Config.load(Path("/etc/bsm-supervisor/config.toml")).service_unit)')
 unit=/etc/systemd/system/$service_unit
 if $install_unit && systemctl cat "$service_unit" >/dev/null 2>&1; then
@@ -127,6 +138,7 @@ if $install_unit && systemctl cat "$service_unit" >/dev/null 2>&1; then
     exit 1
 fi
 if $install_unit; then
+    "$version_dir/bin/bsm-supervisor" --config "$config" service-environment --offline-confirmed
     "$version_dir/bin/bsm-supervisor" --config "$config" unit --user bsm > "$work/bsm.service"
     systemd-analyze verify --man=no "$work/bsm.service"
 fi

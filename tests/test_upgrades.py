@@ -15,6 +15,7 @@ from bsm_supervisor.activation import selection
 from bsm_supervisor.config import Config
 from bsm_supervisor.releases import Release
 from bsm_supervisor.service import guard_command, managed_command
+from bsm_supervisor.service_environment import write_environment
 from bsm_supervisor.store import BusyError, Store
 
 
@@ -31,6 +32,7 @@ class UpgradeTests(unittest.TestCase):
         )
         self.config.config_dir.mkdir(parents=True)
         self.store = Store(self.config.state_dir)
+        write_environment(self.config)
         self.config.api_token_file.write_text("private-token")
         self.config.api_token_file.chmod(0o600)
         self.database = self.config.config_dir / "bedrock-server-manager.db"
@@ -54,7 +56,12 @@ class UpgradeTests(unittest.TestCase):
             "ActiveState": "active",
             "MainPID": "123",
             "Job": "",
-            "UnsetEnvironment": "BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR",
+            "UnsetEnvironment": (
+                "BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR "
+                "BSM_PLUGIN_RECURSION_GUARD BSM_LOG_LEVEL"
+            ),
+            "EnvironmentFiles": str(self.config.state_dir / "bsm-runtime.env")
+            + " (ignore_errors=no)",
             "ExecStart": "{ path=/usr/bin/flock ; argv[]="
             + managed_command(self.config)
             + " ; }",

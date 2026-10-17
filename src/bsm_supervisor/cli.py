@@ -12,8 +12,10 @@ from .config import Config
 from .git_sources import install_git
 from .install import install
 from .integration import inspect as inspect_integration
+from .integration import require_managed
 from .releases import ReleaseError, discover, select
 from .service import ServiceError, SystemdService
+from .service_environment import write_environment
 from .store import BusyError, Store
 
 
@@ -41,6 +43,8 @@ def parser() -> argparse.ArgumentParser:
         "restart",
     ):
         commands.add_parser(name)
+    environment = commands.add_parser("service-environment")
+    environment.add_argument("--offline-confirmed", action="store_true", required=True)
     releases = commands.add_parser("releases")
     releases.add_argument(
         "--channel", choices=("all", "stable", "prerelease"), default="all"
@@ -141,7 +145,25 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(SystemdService(config).status(), indent=2))
             return 0
         store = Store(config.state_dir)
-        if args.command == "upgrades":
+        if args.command == "service-environment":
+            with store.mutation("service:environment"):
+                try:
+                    state = SystemdService(config).status()
+                except ServiceError as error:
+                    if str(error) != f"Service is not installed: {config.service_unit}":
+                        raise
+                else:
+                    if (
+                        state.get("ActiveState") != "inactive"
+                        or state.get("MainPID") != "0"
+                        or state.get("Job")
+                    ):
+                        raise ValueError(
+                            "Stop the managed service before rendering its environment"
+                        )
+                write_environment(config)
+            print("Private managed service environment written")
+        elif args.command == "upgrades":
             print(json.dumps(store.workflows(), indent=2))
         elif args.command == "upgrade-status":
             print(json.dumps(upgrades.status(config, args.workflow_id), indent=2))
@@ -254,8 +276,12 @@ def main(argv: list[str] | None = None) -> int:
             store.acknowledge(args.operation_id)
             print("Interruption acknowledged; no rollback performed")
         else:
-            with store.mutation("service:" + args.command, preserve_on_error=True):
-                SystemdService(config).control(args.command)
+            with store.lock():
+                service = SystemdService(config)
+                if args.command in ("start", "restart"):
+                    require_managed(config, service.status())
+                with store.mutation("service:" + args.command, preserve_on_error=True):
+                    service.control(args.command)
             print(f"Service {args.command} completed")
         return 0
     except KeyboardInterrupt:

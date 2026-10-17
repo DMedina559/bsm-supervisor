@@ -41,7 +41,8 @@ class SystemdService:
                 "show",
                 self.unit,
                 "--property=LoadState,ActiveState,SubState,"
-                "MainPID,Result,ExecStart,ExecCondition,Job,UnsetEnvironment",
+                "MainPID,Result,ExecStart,ExecCondition,Job,"
+                "UnsetEnvironment,EnvironmentFiles",
             ]
         )
         values: dict[str, str] = {}
@@ -93,3 +94,13 @@ def guard_command(config: Config) -> str:
         f"{sys.executable} -I -m bsm_supervisor.launchguard "
         f"--config-dir {config.config_dir}"
     )
+
+
+def unset_environment(config: Config) -> str:
+    """Pin optional bootstrap values and exclude BSM's internal recursion guard."""
+    names = ["BSM_DATA_DIR", "BSM_CONFIG_DIR", "BSM_PLUGIN_RECURSION_GUARD"]
+    if config.bsm_db_url is None:
+        names.insert(0, "BSM_DB_URL")
+    if config.bsm_log_level is None:
+        names.append("BSM_LOG_LEVEL")
+    return " ".join(names)

@@ -111,6 +111,9 @@ checkpoint restoration when returning to the original version and data.
 
 ## Reinstalling the supervisor
 
+See [updating the supervisor](update-supervisor.md) for a complete private-repository
+download and the managed environment/unit migration.
+
 Run the same installer without `--install-bsm-unit` to preserve an existing unit.
 Each run creates a fresh permanent supervisor environment and publishes the CLI
 link only after installation/configuration checks pass. Earlier environments are

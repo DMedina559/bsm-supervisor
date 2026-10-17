@@ -17,6 +17,7 @@ from bsm_supervisor.releases import (
     select,
 )
 from bsm_supervisor.service import guard_command, managed_command
+from bsm_supervisor.service_environment import write_environment
 from bsm_supervisor.store import BusyError, Store
 
 
@@ -78,6 +79,7 @@ class InstallationTests(unittest.TestCase):
         self.config = Config(root / "state", root / "envs", root / "data")
         self.config.config_dir.mkdir(parents=True)
         self.store = Store(self.config.state_dir)
+        write_environment(self.config)
 
     def fake_command(self, arguments, log):
         target = self.config.installations_dir / "release-4.0.0b7"
@@ -148,7 +150,12 @@ class InstallationTests(unittest.TestCase):
             "ActiveState": "inactive",
             "MainPID": "0",
             "Job": "",
-            "UnsetEnvironment": "BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR",
+            "UnsetEnvironment": (
+                "BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR "
+                "BSM_PLUGIN_RECURSION_GUARD BSM_LOG_LEVEL"
+            ),
+            "EnvironmentFiles": str(self.config.state_dir / "bsm-runtime.env")
+            + " (ignore_errors=no)",
             "ExecCondition": (
                 "{ path=/usr/bin/test ; argv[]=/usr/bin/test ! -e "
                 f"{self.config.config_dir}/supervisor-recovery.required ; }} "

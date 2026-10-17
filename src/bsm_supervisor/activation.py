@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .config import Config
 from .integration import offline_guard
-from .service import guard_command, managed_command
+from .service import guard_command, managed_command, unset_environment
 from .store import Store
 
 
@@ -22,6 +22,7 @@ def service_unit(config: Config, user: str) -> str:
         config.data_dir,
         config.config_dir,
         Path(sys.executable),
+        config.state_dir,
     ):
         if not re.fullmatch(r"/[A-Za-z0-9_./-]+", str(path)):
             raise ValueError(
@@ -47,8 +48,8 @@ RestartSec=10
 TimeoutStopSec=180
 KillMode=control-group
 UMask=0077
-PassEnvironment=BSM_LOG_LEVEL
-UnsetEnvironment=BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR
+EnvironmentFile={config.state_dir}/bsm-runtime.env
+UnsetEnvironment={unset_environment(config)}
 
 [Install]
 WantedBy=multi-user.target

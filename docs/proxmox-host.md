@@ -47,8 +47,10 @@ The next available cluster guest ID is suggested. Advanced mode lets you change
 ID, hostname, resources, bridge, static IPv4/gateway, DNS, VLAN, autostart, and the
 supervisor source revision and BSM bind address. Storage menus appear in both modes.
 The default BSM bind is `0.0.0.0`, supplied through the native container environment
-as `BSM_SUPERVISOR_WEB_HOST`. See [listener configuration](listener-environment.md)
-for port overrides and existing-container migration.
+as `HOST`, alongside PORT and all four public BSM bootstrap variables. See [listener configuration](listener-environment.md)
+for the complete variable table and existing-container migration.
+Pass `--bsm-env-file /root/bsm-env.json` to customize all public variables; use
+[the example JSON](../config/proxmox-env.example.json) as a starting point.
 
 Without an explicit template, the script refreshes the appliance catalog and
 selects the newest Debian 13 standard amd64 image, falling back to Debian 12.

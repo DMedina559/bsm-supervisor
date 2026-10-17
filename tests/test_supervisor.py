@@ -19,6 +19,7 @@ from bsm_supervisor.service import (
     guard_command,
     managed_command,
 )
+from bsm_supervisor.service_environment import write_environment
 from bsm_supervisor.store import BusyError, Store
 
 
@@ -155,6 +156,7 @@ class SupervisorTests(unittest.TestCase):
 
     @patch("bsm_supervisor.service.subprocess.run")
     def test_repeated_systemd_conditions_are_retained_and_validated(self, run):
+        write_environment(self.config)
         recovery = (
             "{ path=/usr/bin/test ; argv[]=/usr/bin/test ! -e "
             f"{self.config.config_dir}/supervisor-recovery.required ; "
@@ -172,13 +174,25 @@ class SupervisorTests(unittest.TestCase):
                 + "\n".join("ExecCondition=" + item for item in conditions)
                 + "\nExecStart="
                 + launch
-                + "\nUnsetEnvironment=BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR\n"
+                + "\nUnsetEnvironment=BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR "
+                + "BSM_PLUGIN_RECURSION_GUARD BSM_LOG_LEVEL\n"
+                + f"EnvironmentFiles={self.config.state_dir}/bsm-runtime.env "
+                + "(ignore_errors=no)\n"
             )
             run.return_value = subprocess.CompletedProcess([], 0, output, "")
             state = SystemdService(self.config).status()
             self.assertIn(recovery, state["ExecCondition"])
             self.assertIn(guard, state["ExecCondition"])
             require_managed(self.config, state)
+            for field, changed in (
+                (
+                    "EnvironmentFiles",
+                    state["EnvironmentFiles"] + " /tmp/extra.env (ignore_errors=no)",
+                ),
+                ("UnsetEnvironment", state["UnsetEnvironment"] + " HOST"),
+            ):
+                with self.assertRaises(ValueError):
+                    require_managed(self.config, {**state, field: changed})
             for missing in (recovery, guard):
                 run.return_value = subprocess.CompletedProcess(
                     [], 0, output.replace("ExecCondition=" + missing + "\n", ""), ""
@@ -210,8 +224,12 @@ class SupervisorTests(unittest.TestCase):
             self.assertEqual(main(["--config", str(config), "installations"]), 0)
         self.assertIn("[]", output.getvalue())
 
+    @patch("bsm_supervisor.cli.require_managed")
+    @patch("bsm_supervisor.cli.SystemdService.status", return_value={})
     @patch("bsm_supervisor.cli.SystemdService.control")
-    def test_cli_records_service_failure_and_returns_error(self, control):
+    def test_cli_records_service_failure_and_returns_error(
+        self, control, status, managed
+    ):
         control.side_effect = ServiceError("permission denied")
         config = self.root / "config.toml"
         config.write_text(

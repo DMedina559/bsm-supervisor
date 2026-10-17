@@ -104,7 +104,7 @@ else:
         self.assertIn("local:vztmpl/debian-12-standard_12.10-1_amd64.tar.zst", create)
         self.assertEqual(create[create.index("--unprivileged") + 1], "1")
         self.assertIn("local-lvm:16", create)
-        self.assertIn("BSM_SUPERVISOR_WEB_HOST=0.0.0.0", create)
+        self.assertIn("HOST=0.0.0.0", create)
         self.assertFalse(
             any(
                 command[0] == "pct" and command[1:3] != ["help", "create"]
@@ -209,3 +209,85 @@ else:
                 result = self.run_plan(*args)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("pct create", result.stdout)
+
+    def test_native_environment_payload_handles_all_public_variables(self):
+        program = (
+            self.script.read_text().split("<<'PYENV'\n", 1)[1].split("\nPYENV\n", 1)[0]
+        )
+        path = self.base / "environment.json"
+        values = {
+            "BSM_CONFIG_DIR": "/etc/bsm-config",
+            "BSM_DATA_DIR": "/srv/worlds",
+            "BSM_DB_URL": "postgresql://user:secret@db/bsm",
+            "BSM_LOG_LEVEL": "debug",
+            "HOST": "127.0.0.1",
+            "PORT": "12345",
+        }
+        path.write_text(json.dumps(values))
+        result = subprocess.run(
+            [sys.executable, "-c", program, str(path), "0.0.0.0", "0"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = json.loads(result.stdout)
+        self.assertEqual(rendered, {**values, "BSM_LOG_LEVEL": "DEBUG"})
+        for key, value in (
+            ("BSM_PLUGIN_RECURSION_GUARD", "1"),
+            ("BSM_LOG_LEVEL", "invalid"),
+            ("BSM_DB_URL", "bad\nline"),
+        ):
+            path.write_text(json.dumps({**values, key: value}))
+            result = subprocess.run(
+                [sys.executable, "-c", program, str(path), "0.0.0.0", "0"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn("secret", result.stderr)
+
+    def test_native_cli_handler_receives_nul_separated_values_without_argv_secrets(
+        self,
+    ):
+        import shutil
+
+        if shutil.which("perl") is None:
+            self.skipTest("Perl is not installed")
+        script = self.script.read_text()
+        program = script.split("perl -MJSON::PP -MPVE::CLI::pct -e '\n", 1)[1].split(
+            "\n' ", 1
+        )[0]
+        module = self.base / "modules/PVE/CLI/pct.pm"
+        module.parent.mkdir(parents=True)
+        module.write_text(
+            "package PVE::CLI::pct; use JSON::PP; "
+            "sub run_cli_handler { print encode_json(\\@ARGV); } 1;"
+        )
+        values = {
+            "BSM_DB_URL": "postgresql://u:secret@db/bsm",
+            "BSM_CONFIG_DIR": "/etc/bsm config",
+            "HOST": "0.0.0.0",
+        }
+        path = self.base / "private.json"
+        path.write_text(json.dumps(values))
+        result = subprocess.run(
+            [
+                "perl",
+                "-I",
+                str(self.base / "modules"),
+                "-MJSON::PP",
+                "-MPVE::CLI::pct",
+                "-e",
+                program,
+                "901",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = json.loads(result.stdout)
+        self.assertEqual(arguments[:3], ["set", "901", "--env"])
+        self.assertEqual(
+            dict(item.split("=", 1) for item in arguments[3].split("\0")), values
+        )

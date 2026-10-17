@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Iterator
 
 from .config import Config
-from .service import SystemdService, guard_command, managed_command
+from .service import SystemdService, guard_command, managed_command, unset_environment
+from .service_environment import verify_environment
 
 BOOTSTRAP = "bedrock_server_manager.json"
 DATABASE = "bedrock-server-manager.db"
@@ -68,7 +69,11 @@ def inspect(config: Config) -> dict:
         if not isinstance(bootstrap, dict):
             raise ValueError("BSM bootstrap configuration must be an object")
     default_database = config.config_dir / DATABASE
-    url = bootstrap.get("db_url") or "sqlite:///" + str(default_database)
+    url = (
+        config.bsm_db_url
+        or bootstrap.get("db_url")
+        or "sqlite:///" + str(default_database)
+    )
     database = None
     if not isinstance(url, str) or not url.startswith(
         ("sqlite:///", "sqlite+aiosqlite:///")
@@ -170,6 +175,12 @@ def require_offline(config: Config) -> None:
 
 def require_managed(config: Config, state: dict[str, str]) -> None:
     """Validate launch and startup gates without requiring an inactive unit."""
+    verify_environment(config)
+    expected_environment = (
+        str(config.state_dir / "bsm-runtime.env") + " (ignore_errors=no)"
+    )
+    if state.get("EnvironmentFiles", "").strip() != expected_environment:
+        raise ValueError("Managed service lacks its pinned environment file")
     command = state.get("ExecStart", "")
     expected = managed_command(config)
     if (
@@ -181,9 +192,8 @@ def require_managed(config: Config, state: dict[str, str]) -> None:
         )
         not in state.get("ExecCondition", "")
         or f"argv[]={guard_command(config)} ;" not in state.get("ExecCondition", "")
-        or not {"BSM_DB_URL", "BSM_DATA_DIR", "BSM_CONFIG_DIR"}.issubset(
-            state.get("UnsetEnvironment", "").split()
-        )
+        or set(unset_environment(config).split())
+        != set(state.get("UnsetEnvironment", "").split())
     ):
         raise ValueError(
             "Checkpoint operations require the current generated managed service"

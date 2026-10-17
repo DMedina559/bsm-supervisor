@@ -3,7 +3,16 @@
 import os
 from pathlib import Path
 
-NAMES = {"BSM_SUPERVISOR_WEB_HOST", "BSM_SUPERVISOR_WEB_PORT"}
+NAMES = {
+    "BSM_SUPERVISOR_WEB_HOST",
+    "BSM_SUPERVISOR_WEB_PORT",
+    "HOST",
+    "PORT",
+    "BSM_CONFIG_DIR",
+    "BSM_DATA_DIR",
+    "BSM_DB_URL",
+    "BSM_LOG_LEVEL",
+}
 
 
 def overrides() -> dict[str, str]:

@@ -225,3 +225,7 @@ wizard, use [Proxmox host setup](docs/proxmox-host.md).
 BSM host/port settings and native Proxmox environment overrides are described in
 [listener configuration](docs/listener-environment.md). New LXC setups bind to
 `0.0.0.0:11325`; the host provisioner targets Proxmox VE 9.2+ with native environment support.
+
+All public BSM bootstrap environment settings and Docker HOST/PORT aliases can
+be configured through Proxmox. See the [variable table](docs/listener-environment.md)
+and [supervisor update instructions](docs/update-supervisor.md).

@@ -6,7 +6,10 @@ service_timeout = 240
 # LXC default: reachable on all IPv4 interfaces. Use 127.0.0.1 for a local proxy.
 bsm_host = "0.0.0.0"
 bsm_port = 11325
-# Native Proxmox environment overrides: BSM_SUPERVISOR_WEB_HOST / WEB_PORT.
+# Native Proxmox overrides also accept HOST / PORT, matching BSM's Docker entrypoint.
+# Optional pinned bootstrap values (environment variables override TOML):
+# bsm_db_url = "sqlite:////srv/bsm/config/bedrock-server-manager.db"
+bsm_log_level = "INFO"
 
 # Optional: adopt a BSM configuration directory outside data_dir.
 # bsm_config_dir = "/etc/bedrock-server-manager"

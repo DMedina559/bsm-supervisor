@@ -23,6 +23,8 @@ class Config:
     readiness_timeout: int = 60
     bsm_host: str = "127.0.0.1"
     bsm_port: int = 11325
+    bsm_db_url: str | None = None
+    bsm_log_level: str | None = None
 
     @property
     def config_dir(self) -> Path:
@@ -39,6 +41,24 @@ class Config:
             raise ValueError("bsm_host must be a loopback or wildcard IP address")
         if type(self.bsm_port) is not int or not 1 <= self.bsm_port <= 65535:
             raise ValueError("bsm_port must be an integer from 1 to 65535")
+        if self.bsm_db_url is not None and (
+            not isinstance(self.bsm_db_url, str)
+            or not self.bsm_db_url
+            or len(self.bsm_db_url) > 16384
+            or not re.match(r"^[A-Za-z][A-Za-z0-9+.-]*://", self.bsm_db_url)
+            or any(ord(char) < 32 or ord(char) == 127 for char in self.bsm_db_url)
+        ):
+            raise ValueError("bsm_db_url must be a nonempty single-line URL")
+        if self.bsm_log_level not in (
+            None,
+            "DEBUG",
+            "INFO",
+            "WARNING",
+            "ERROR",
+            "CRITICAL",
+            "NOTSET",
+        ):
+            raise ValueError("Invalid BSM log level")
         paths = (self.state_dir, self.installations_dir, self.data_dir)
         for path in paths:
             if not path.is_absolute():
@@ -95,6 +115,8 @@ class Config:
             "readiness_timeout",
             "bsm_host",
             "bsm_port",
+            "bsm_db_url",
+            "bsm_log_level",
         }
         unknown = values.keys() - allowed
         if unknown:
@@ -124,6 +146,25 @@ class Config:
         if "service_unit" in values and not isinstance(values["service_unit"], str):
             raise ValueError("service_unit must be a string")
         environment = overrides()
+        for name, key in (
+            ("BSM_DATA_DIR", "data_dir"),
+            ("BSM_CONFIG_DIR", "bsm_config_dir"),
+        ):
+            if name in environment:
+                if not environment[name]:
+                    raise ValueError(name + " must be a nonempty absolute path")
+                values[key] = Path(environment[name])
+        if "BSM_DB_URL" in environment:
+            values["bsm_db_url"] = environment["BSM_DB_URL"]
+        if "BSM_LOG_LEVEL" in environment:
+            level = environment["BSM_LOG_LEVEL"].upper()
+            values["bsm_log_level"] = {"WARN": "WARNING", "FATAL": "CRITICAL"}.get(
+                level, level
+            )
+        if "HOST" in environment:
+            values["bsm_host"] = environment["HOST"]
+        if "PORT" in environment and "BSM_SUPERVISOR_WEB_PORT" not in environment:
+            environment["BSM_SUPERVISOR_WEB_PORT"] = environment["PORT"]
         if "BSM_SUPERVISOR_WEB_HOST" in environment:
             values["bsm_host"] = environment["BSM_SUPERVISOR_WEB_HOST"]
         if "BSM_SUPERVISOR_WEB_PORT" in environment:
