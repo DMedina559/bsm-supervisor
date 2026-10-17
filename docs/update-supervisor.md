@@ -108,3 +108,16 @@ than continuing to change its environment or unit. Generated launch guards point
 to a permanent supervisor interpreter; older environments are retained for that
 reason. After unit regeneration, it references the newly installed interpreter.
 The installer does not perform application migrations or discard checkpoints.
+
+## Independent console after an update
+
+Finish any running console jobs before updating. If the console service is
+enabled, restart it after the supervisor update succeeds so its process and
+future child actions use the new supervisor environment:
+
+```bash
+systemctl restart bsm-supervisor-console.service
+```
+
+The supervisor updater preserves the console token, schedules, exported
+checkpoints, and event journal. It does not restart the console automatically.

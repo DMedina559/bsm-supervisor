@@ -28,7 +28,7 @@ done
 [[ -f $source_dir/scripts/provision-proxmox.sh && -f $source_dir/pyproject.toml ]] || { echo 'A supervisor checkout is required.' >&2; exit 2; }
 [[ $storage =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ && $template_storage =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || exit 2
 if $dry_run; then
-    printf 'Validation plan: create CT %s; install BSM commit %s; setup/readiness; checkpoint/restore; failed startup/recovery; supervisor update; reboot/readiness.\n' "$ctid" "$bsm_commit"
+    printf 'Validation plan: create CT %s; install BSM commit %s; setup/readiness; checkpoint/restore/encrypted transfer; independent console; schedules; failed startup/recovery; supervisor update; reboot/readiness.\n' "$ctid" "$bsm_commit"
     echo 'No host or container changes made.'
     exit 0
 fi
@@ -54,10 +54,46 @@ bsm-supervisor install-git --commit "$commit" --trust-source-build
 bsm-supervisor setup --installation "git-$commit" --offline-confirmed --wait
 bsm-supervisor setup --wait
 bsm-supervisor doctor
+bsm-supervisor web-token /etc/bsm-supervisor/validation-console-token
+bsm-supervisor web-unit --token-file /etc/bsm-supervisor/validation-console-token > /etc/systemd/system/bsm-supervisor-console.service
+systemd-analyze verify --man=no /etc/systemd/system/bsm-supervisor-console.service
+systemctl daemon-reload
+systemctl enable --now bsm-supervisor-console.service
+# urllib keeps the credential out of command arguments and validation logs.
+console_ready() {
+    /opt/bsm-supervisor/current/bin/python -I - <<'PYCONSOLE'
+import json, urllib.request
+from pathlib import Path
+request = urllib.request.Request('http://127.0.0.1:11326/api/state', headers={
+    'Authorization': 'Bearer ' + Path('/etc/bsm-supervisor/validation-console-token').read_text().strip()
+})
+with urllib.request.urlopen(request, timeout=5) as response:
+    assert 'service' in json.load(response)
+PYCONSOLE
+}
+for ((attempt=0; attempt<30; attempt++)); do
+    if console_ready >/dev/null 2>&1; then break; fi
+    sleep 1
+done
+console_ready
 printf 'before\n' > /srv/bsm/validation-marker.txt
 bsm-supervisor graceful-stop
 checkpoint=$(bsm-supervisor checkpoint-create --offline-confirmed | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
 bsm-supervisor checkpoint-verify "$checkpoint"
+# Prove that BSM downtime does not take down the independent control surface.
+console_ready
+bsm-supervisor web-token /root/validation-backup-passphrase
+bsm-supervisor checkpoint-export "$checkpoint" /root/validation.bsmcheckpoint.enc --passphrase-file /root/validation-backup-passphrase
+/opt/bsm-supervisor/current/bin/python -I - <<'PYTRANSFER'
+from dataclasses import replace
+from pathlib import Path
+from bsm_supervisor.config import Config
+from bsm_supervisor.store import Store
+from bsm_supervisor.transfer import import_checkpoint
+config = replace(Config.load(Path('/etc/bsm-supervisor/config.toml')), state_dir=Path('/var/lib/bsm-transfer-validation'))
+result = import_checkpoint(config, Store(config.state_dir), Path('/root/validation.bsmcheckpoint.enc'), Path('/root/validation-backup-passphrase'))
+assert result['restored'] is False
+PYTRANSFER
 bsm-supervisor start --wait
 printf 'after\n' > /srv/bsm/validation-marker.txt
 bsm-supervisor graceful-stop
@@ -93,6 +129,24 @@ bsm-supervisor supervisor-update --source-dir /root/bsm-validation-source --main
 [[ $(cat /srv/bsm/validation-marker.txt) == before ]]
 bsm-supervisor checkpoint-verify "$checkpoint"
 bsm-supervisor doctor
+systemctl restart bsm-supervisor-console.service
+for ((attempt=0; attempt<30; attempt++)); do
+    if console_ready >/dev/null 2>&1; then break; fi
+    sleep 1
+done
+console_ready
+/opt/bsm-supervisor/current/bin/python -I - <<'PYPOLICY'
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+now = datetime.now(timezone.utc)
+policy = {'name':'validation-check', 'action':'check-updates', 'calendar':'*-*-* 02:00:00 UTC', 'selector':'prerelease', 'window_start':(now-timedelta(minutes=5)).strftime('%H:%M'), 'window_end':(now+timedelta(minutes=5)).strftime('%H:%M'), 'days':[1,2,3,4,5,6,7]}
+Path('/root/validation-schedule.json').write_text(json.dumps(policy))
+PYPOLICY
+bsm-supervisor schedule-install /root/validation-schedule.json
+bsm-supervisor schedule-run validation-check
+bsm-supervisor schedule-remove validation-check --service-checked
+bsm-supervisor events --after 0
 systemctl enable bedrock-server-manager-webui.service
 GUEST
 pct_call reboot "$ctid"
@@ -103,4 +157,5 @@ for ((attempt=0; attempt<90; attempt++)); do
 done
 $ready || { echo "CT $ctid did not recover readiness after reboot; inspect it." >&2; exit 1; }
 pct_call exec "$ctid" -- bsm-supervisor doctor
+pct_call exec "$ctid" -- systemctl is-active --quiet bsm-supervisor-console.service
 printf 'Validation passed for CT %s and BSM %s. Container retained for inspection.\n' "$ctid" "$bsm_commit"

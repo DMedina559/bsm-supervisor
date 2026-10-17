@@ -5,17 +5,23 @@ import json
 import sqlite3
 import subprocess
 import sys
+import time
+import zipfile
 from pathlib import Path
 
 from . import (
     checkpoints,
     cleanup,
     diagnostics,
+    events,
     operations,
     restoration,
     runtime,
+    scheduling,
     self_update,
+    transfer,
     upgrades,
+    web,
 )
 from .activation import activate, selection, service_unit
 from .config import Config
@@ -59,6 +65,48 @@ def parser() -> argparse.ArgumentParser:
             action="store_true",
             help="Wait for authenticated application readiness",
         )
+    for name in ("checkpoint-export", "checkpoint-import"):
+        command = commands.add_parser(name)
+        command.add_argument(
+            "target", help="Checkpoint ID for export; archive path for import"
+        )
+        if name == "checkpoint-export":
+            command.add_argument("destination", type=Path)
+        else:
+            command.add_argument(
+                "--max-bytes", type=int, default=transfer.DEFAULT_LIMIT
+            )
+        command.add_argument("--passphrase-file", type=Path)
+    progress = commands.add_parser("events")
+    progress.add_argument("--after", type=int, default=0)
+    progress.add_argument("--follow", action="store_true")
+    commands.add_parser("schedules")
+    schedule_install = commands.add_parser("schedule-install")
+    schedule_install.add_argument("policy", type=Path)
+    for name in ("schedule-run", "schedule-remove", "schedule-acknowledge"):
+        command = commands.add_parser(name)
+        command.add_argument("name")
+        if name != "schedule-run":
+            command.add_argument(
+                "--service-checked", action="store_true", required=True
+            )
+    notify = commands.add_parser("notifications-configure")
+    notify.add_argument("file", type=Path)
+    commands.add_parser("notifications-deliver")
+    commands.add_parser("notifications-disable")
+    token = commands.add_parser("web-token")
+    token.add_argument("file", type=Path)
+    console = commands.add_parser("web")
+    console.add_argument("--token-file", type=Path, required=True)
+    console.add_argument("--host", default="127.0.0.1")
+    console.add_argument("--port", type=int, default=11326)
+    console.add_argument("--origin", default="http://127.0.0.1:11326")
+    console_unit = commands.add_parser("web-unit")
+    console_unit.add_argument("--token-file", type=Path, required=True)
+    console_unit.add_argument("--origin", default="http://127.0.0.1:11326")
+    job_ack = commands.add_parser("web-job-acknowledge")
+    job_ack.add_argument("id")
+    job_ack.add_argument("--service-checked", action="store_true", required=True)
     commands.add_parser("version")
     doctor = commands.add_parser("doctor")
     doctor.add_argument("--no-health", action="store_true")
@@ -163,6 +211,32 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(self_update.information(), indent=2))
             return 0
         config = Config.load(args.config)
+        if args.command == "events":
+            cursor = args.after
+            while True:
+                page = events.read(config.state_dir, cursor)
+                for event in page:
+                    print(json.dumps(event), flush=True)
+                    cursor = event["id"]
+                if not args.follow:
+                    break
+                time.sleep(1)
+            return 0
+        if args.command == "web-token":
+            web.token_create(args.file)
+            print("Private console credential created")
+            return 0
+        if args.command == "web-unit":
+            print(web.unit(args.config.resolve(), args.token_file, args.origin))
+            return 0
+        if args.command == "web":
+            web.serve(
+                config, args.config, args.token_file, args.host, args.port, args.origin
+            )
+            return 0
+        if args.command == "schedules":
+            print(json.dumps(scheduling.listing(config), indent=2))
+            return 0
         if args.command == "doctor":
             report = diagnostics.doctor(config, not args.no_health)
             print(json.dumps(report, indent=2))
@@ -187,7 +261,61 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(SystemdService(config).status(), indent=2))
             return 0
         store = Store(config.state_dir)
-        if args.command == "setup":
+        if args.command == "checkpoint-export":
+            print(
+                json.dumps(
+                    transfer.export_checkpoint(
+                        config,
+                        store,
+                        args.target,
+                        args.destination,
+                        args.passphrase_file,
+                    ),
+                    indent=2,
+                )
+            )
+        elif args.command == "checkpoint-import":
+            print(
+                json.dumps(
+                    transfer.import_checkpoint(
+                        config,
+                        store,
+                        Path(args.target),
+                        args.passphrase_file,
+                        args.max_bytes,
+                    ),
+                    indent=2,
+                )
+            )
+        elif args.command == "schedule-install":
+            print(
+                json.dumps(
+                    scheduling.install(config, args.config, store, args.policy),
+                    indent=2,
+                )
+            )
+        elif args.command == "schedule-run":
+            print(json.dumps(scheduling.run(config, store, args.name), indent=2))
+        elif args.command == "schedule-remove":
+            scheduling.remove(config, store, args.name)
+            print("Schedule removed")
+        elif args.command == "schedule-acknowledge":
+            scheduling.acknowledge(config, store, args.name)
+            print("Schedule bookkeeping acknowledged; no service recovery performed")
+        elif args.command == "notifications-configure":
+            with store.mutation("notifications:configure"):
+                events.configure(config.state_dir, args.file)
+            print("Private notification configuration written")
+        elif args.command == "notifications-disable":
+            with store.mutation("notifications:disable"):
+                (config.state_dir / "notifications.json").unlink(missing_ok=True)
+            print("Notifications disabled")
+        elif args.command == "notifications-deliver":
+            print(json.dumps(events.deliver(config.state_dir), indent=2))
+        elif args.command == "web-job-acknowledge":
+            web.acknowledge(config, store, args.id)
+            print("Console job acknowledged; no service recovery performed")
+        elif args.command == "setup":
             offline = args.offline_confirmed
             result = setup_installation(
                 config,
@@ -371,6 +499,8 @@ def main(argv: list[str] | None = None) -> int:
         OSError,
         ValueError,
         sqlite3.Error,
+        zipfile.BadZipFile,
+        KeyError,
         ServiceError,
         BusyError,
         ReleaseError,

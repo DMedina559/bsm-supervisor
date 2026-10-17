@@ -26,6 +26,14 @@ class Store:
             if version not in (0, 1, 2):
                 raise ValueError(f"Unsupported supervisor database version: {version}")
             db.executescript("""
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY,
+                    operation_id INTEGER NOT NULL,
+                    state TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT
+                        (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                );
                 CREATE TABLE IF NOT EXISTS installations (
                     id TEXT PRIMARY KEY,
                     version TEXT NOT NULL,
@@ -110,6 +118,10 @@ class Store:
                     "inspect history before acknowledging an interruption"
                 ) from exc
             assert cursor.lastrowid is not None
+            db.execute(
+                "INSERT INTO events(operation_id, state) VALUES (?, 'running')",
+                (cursor.lastrowid,),
+            )
             return cursor.lastrowid
 
     def finish(self, operation_id: int, state: str, detail: str = "") -> None:
@@ -125,6 +137,10 @@ class Store:
             )
             if result.rowcount != 1:
                 raise ValueError("Operation is not running")
+            db.execute(
+                "INSERT INTO events(operation_id, state, detail) VALUES (?, ?, ?)",
+                (operation_id, state, detail),
+            )
 
     @contextmanager
     def lock(self) -> Iterator[None]:
@@ -220,6 +236,19 @@ class Store:
                 "UPDATE operations SET detail = ? WHERE id = ? AND state = 'running'",
                 (detail, operation_id),
             )
+
+            db.execute(
+                "INSERT INTO events(operation_id, state, detail) "
+                "VALUES (?, 'progress', ?)",
+                (operation_id, detail),
+            )
+
+    def require_idle(self) -> None:
+        """Reject queued/interrupted work before an automation stops BSM."""
+        with self.connect() as db:
+            self._check_workflow(db)
+            if db.execute("SELECT 1 FROM operations WHERE state='running'").fetchone():
+                raise BusyError("Resolve the pending operation before automation")
 
     def _check_workflow(self, db: sqlite3.Connection) -> None:
         row = db.execute("SELECT id FROM workflows WHERE state = 'running'").fetchone()

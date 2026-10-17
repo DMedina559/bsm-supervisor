@@ -2,7 +2,9 @@
 
 The host validation script exercises installation, guided setup, authenticated
 readiness before first-user creation, setup reruns, checkpoint capture and
-restoration, failed startup recovery, supervisor updates, and service startup
+restoration, encrypted checkpoint export/import, console availability while BSM
+is stopped, schedule installation/execution/removal, failed startup recovery,
+supervisor updates, and service startup
 after a full container reboot.
 
 Run it from a supervisor checkout on a Proxmox VE 9.2+ host as root. Choose an

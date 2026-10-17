@@ -105,7 +105,7 @@ install -d -m 0755 /opt/bsm-supervisor /opt/bsm-supervisor/versions
 version_dir=$(mktemp -d /opt/bsm-supervisor/versions/install-XXXXXXXX)
 chmod 0755 "$version_dir"
 python3 -m venv "$version_dir"
-"$version_dir/bin/python" -I -m pip --isolated install --index-url https://pypi.org/simple "$source_dir"
+"$version_dir/bin/python" -I -m pip --isolated install --index-url https://pypi.org/simple "${source_dir}[all]"
 "$version_dir/bin/python" -I -m pip check
 if ! id bsm >/dev/null 2>&1; then
     useradd --system --user-group --home-dir /srv/bsm --shell /usr/sbin/nologin bsm

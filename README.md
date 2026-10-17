@@ -2,7 +2,7 @@
 
 Install, manage, upgrade, and recover [Bedrock Server Manager](https://github.com/DMedina559/bedrock-server-manager) inside a Linux system or Proxmox LXC.
 
-**Early development.** The supervisor currently provides a local CLI and managed systemd integration. An independent web interface, scheduled updates, and maintenance windows are planned.
+**Early development.** The supervisor currently provides a local CLI and managed systemd integration. An independent authenticated web console, opt-in maintenance schedules, and portable encrypted checkpoints are available.
 
 ## Get started
 
@@ -102,3 +102,14 @@ CI covers Python 3.11 and 3.14, formatting, lint, type checking, and installer s
 ## License
 
 See [LICENSE](LICENSE).
+
+## Console, automation, and external recovery copies
+
+- [Independent web console](docs/web-console.md): service/version management and recovery while BSM is down.
+- [Scheduled maintenance and notifications](docs/scheduling.md): UTC windows, explicit upgrade consent, durable progress, and optional HTTPS completion delivery.
+- [Checkpoint transfer](docs/checkpoint-transfer.md): verified archives, optional encryption, and off-host storage.
+- [Supervisor releases](docs/releases.md): tagged packages, pinned bootstrap assets, and generated release notes.
+
+The supervisor license is AGPL-3.0-only. These additions remain early development;
+run the [disposable Proxmox validation](docs/validation.md) before relying on a new
+release for a production deployment.
