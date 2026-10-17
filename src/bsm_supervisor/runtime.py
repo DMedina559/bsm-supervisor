@@ -48,6 +48,11 @@ def bearer(config: Config) -> str:
     return token
 
 
+def process_owner(pid: int) -> int:
+    """Read the service process owner from procfs."""
+    return Path(f"/proc/{pid}").stat().st_uid
+
+
 def control_record(config: Config, status: dict[str, str]) -> dict:
     """Bind local credentials to the current systemd PID and its process generation."""
     path = config.config_dir / "web_server.control.json"
@@ -55,7 +60,6 @@ def control_record(config: Config, status: dict[str, str]) -> dict:
     if (
         not stat.S_ISREG(info.st_mode)
         or info.st_mode & 0o077
-        or info.st_uid != config.config_dir.stat().st_uid
         or info.st_size > 65536
     ):
         raise RuntimeErrorBase("Invalid BSM runtime control record permissions")
@@ -65,6 +69,8 @@ def control_record(config: Config, status: dict[str, str]) -> dict:
     pid = record.get("pid")
     if type(pid) is not int or str(pid) != status.get("MainPID"):
         raise RuntimeErrorBase("Runtime record does not match the managed service PID")
+    if info.st_uid != process_owner(pid):
+        raise RuntimeErrorBase("Runtime control record owner differs from service owner")
     ticks = int(process_generation(pid))
     boot = next(
         int(line.split()[1])

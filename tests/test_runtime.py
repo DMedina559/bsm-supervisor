@@ -151,6 +151,7 @@ class RuntimeTests(unittest.TestCase):
         )
         with (
             patch("bsm_supervisor.runtime.process_generation", return_value="100"),
+            patch("bsm_supervisor.runtime.process_owner", return_value=os.geteuid()),
             patch("bsm_supervisor.runtime.Path.read_bytes", return_value=command),
         ):
             runtime.control_record(self.config, {"MainPID": "99"})
