@@ -9,7 +9,7 @@ from .checkpoint_files import read_json
 from .config import Config
 from .integration import require_managed
 from .self_update import update_lock
-from .service import SystemdService
+from .service import service_backend
 from .store import Store
 
 
@@ -29,7 +29,7 @@ def eligible(config: Config, store: Store) -> dict:
     plan = config.state_dir / "supervisor-update.json"
     if plan.exists() and read_json(plan).get("phase") != "completed":
         return {"state": "blocked", "reason": "Supervisor update requires recovery"}
-    state = SystemdService(config).status()
+    state = service_backend(config).status()
     require_managed(config, state)
     if state.get("Job") or state.get("ActiveState") not in (
         "inactive",
@@ -83,7 +83,7 @@ def attempt(console) -> dict:
     try:
         if config.stop_bsm_with_supervisor:
             deadline = time.monotonic() + config.service_timeout
-            while SystemdService(config).status().get("ActiveState") == "deactivating":
+            while service_backend(config).status().get("ActiveState") == "deactivating":
                 if time.monotonic() >= deadline:
                     return {
                         "state": "blocked",

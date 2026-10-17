@@ -186,7 +186,7 @@ class InstallationTests(unittest.TestCase):
             + " ; }",
         }
 
-    @patch("bsm_supervisor.integration.SystemdService")
+    @patch("bsm_supervisor.integration.service_backend")
     def test_offline_activation_is_atomic_and_does_not_start_service(self, service):
         target = self.registered()
         self.assertIsNone(selection(self.config, self.store))
@@ -198,7 +198,7 @@ class InstallationTests(unittest.TestCase):
         service.return_value.control.assert_not_called()
         self.assertEqual(self.store.operations()[0]["state"], "succeeded")
 
-    @patch("bsm_supervisor.integration.SystemdService")
+    @patch("bsm_supervisor.integration.service_backend")
     def test_activation_refuses_running_queued_or_unmanaged_service(self, service):
         self.registered()
         for overrides in (

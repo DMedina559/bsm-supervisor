@@ -21,7 +21,10 @@ class InstallerProvenanceTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.script = Path("scripts/install-lxc.sh").read_text()
+        self.script = (
+            Path("scripts/install-lxc.sh").read_text()
+            + Path("scripts/lib/install-systemd.sh").read_text()
+        )
         self.revision = "5d63feb6866a4831779474e88fe869a63d7ce7ab"
 
     def program(self, marker):

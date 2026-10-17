@@ -44,7 +44,7 @@ class CheckpointTests(unittest.TestCase):
             """)
         self.store = Store(self.config.state_dir)
         write_environment(self.config)
-        self.service = patch("bsm_supervisor.integration.SystemdService")
+        self.service = patch("bsm_supervisor.integration.service_backend")
         self.mock_service = self.service.start()
         self.addCleanup(self.service.stop)
         self.mock_service.return_value.status.return_value = {
@@ -276,7 +276,7 @@ class CheckpointTests(unittest.TestCase):
             f"config = Config(Path({str(self.config.state_dir)!r}), "
             f"Path({str(self.config.installations_dir)!r}), "
             f"Path({str(self.config.data_dir)!r})); "
-            f"patch('bsm_supervisor.integration.SystemdService.status', "
+            f"patch('bsm_supervisor.service.SystemdService.status', "
             f"return_value={state!r}).start(); "
             "original = restoration._move; "
             "restoration._move = lambda source, destination: "

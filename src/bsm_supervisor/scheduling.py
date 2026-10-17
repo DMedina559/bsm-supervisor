@@ -14,7 +14,7 @@ from .checkpoint_files import read_json, write_json
 from .config import Config
 from .integration import require_managed
 from .releases import discover, select
-from .service import SystemdService
+from .service import service_backend
 from .store import Store
 
 UNIT_DIRECTORY = Path("/etc/systemd/system")
@@ -329,7 +329,7 @@ def run(config: Config, store: Store, name: str) -> dict:
                 else:
                     report["result"] = "No newer version; no change"
             elif action == "checkpoint":
-                state = SystemdService(config).status()
+                state = service_backend(config).status()
                 require_managed(config, state)
                 was_running = state.get("ActiveState") == "active" and state.get(
                     "MainPID"

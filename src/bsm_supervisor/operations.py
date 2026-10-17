@@ -4,14 +4,14 @@ from . import runtime
 from .activation import selection
 from .config import Config
 from .integration import require_managed
-from .service import ServiceError, SystemdService
+from .service import ServiceError, service_backend
 from .store import Store
 
 
 def control(config: Config, store: Store, action: str, wait: bool = False) -> None:
     """Validate before service control and retain uncertain startup outcomes."""
     with store.lock():
-        service = SystemdService(config)
+        service = service_backend(config)
         current = selection(config, store) if action in ("start", "restart") else None
         if action in ("start", "restart"):
             if current is None:

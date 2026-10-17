@@ -107,6 +107,14 @@ CI covers Python 3.11 and 3.14, formatting, lint, type checking, and installer s
 - [Checkpoint transfer](docs/checkpoint-transfer.md): verified archives, optional encryption, and off-host storage.
 - [Supervisor releases](docs/releases.md): tagged packages, pinned bootstrap assets, and generated release notes.
 
+## Linux deployment
+
+The supervisor runs on Debian/Ubuntu systems with systemd, including LXC, virtual
+machines and bare metal. The Proxmox provisioner creates the container; the Linux
+installer handles the application inside the target system. From a complete
+checkout, use `bash scripts/install.sh --source-dir "$PWD" --ref dev` as root.
+See [Linux installation](docs/install-lxc.md) for requirements and setup options.
+
 ## License
 
 Licensed under the GNU Affero General Public License, version 3 or (at your

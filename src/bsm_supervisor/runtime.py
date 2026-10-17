@@ -14,7 +14,7 @@ from packaging.version import Version
 
 from .config import Config
 from .launchguard import process_generation
-from .service import SystemdService
+from .service import service_backend
 
 
 class RuntimeErrorBase(RuntimeError):
@@ -167,7 +167,7 @@ def request(
 
 def ready(config: Config, expected_version: str) -> dict:
     """Require semantic health and the exact selected running BSM version."""
-    status = SystemdService(config).status()
+    status = service_backend(config).status()
     if status.get("ActiveState") != "active":
         raise RuntimeErrorBase("BSM service is not active")
     record = control_record(config, status)
@@ -206,7 +206,7 @@ def ready(config: Config, expected_version: str) -> dict:
         matches = False
     if not matches:
         raise RuntimeErrorBase("Running BSM version differs from selected installation")
-    confirmed = control_record(config, SystemdService(config).status())
+    confirmed = control_record(config, service_backend(config).status())
     if confirmed["instance_id"] != record["instance_id"]:
         raise RuntimeErrorBase("BSM runtime changed during readiness verification")
 
@@ -240,7 +240,7 @@ def wait_ready(config: Config, expected_version: str) -> dict:
 
 def shutdown(config: Config) -> None:
     """Request authenticated graceful exit and await an inactive service."""
-    status = SystemdService(config).status()
+    status = service_backend(config).status()
     if status.get("ActiveState") == "inactive" and status.get("MainPID") == "0":
         return
     if status.get("ActiveState") != "active":
@@ -256,7 +256,7 @@ def shutdown(config: Config) -> None:
         raise RuntimeErrorBase("Shutdown receipt belongs to a different BSM runtime")
     deadline = time.monotonic() + config.service_timeout
     while True:
-        state = SystemdService(config).status()
+        state = service_backend(config).status()
         if (
             state.get("ActiveState") == "inactive"
             and state.get("MainPID") == "0"

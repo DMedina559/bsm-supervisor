@@ -46,7 +46,7 @@ class RuntimeTests(unittest.TestCase):
             },
         }
 
-    @patch("bsm_supervisor.runtime.SystemdService")
+    @patch("bsm_supervisor.runtime.service_backend")
     @patch("bsm_supervisor.runtime.control_record")
     @patch("bsm_supervisor.runtime.request")
     def test_readiness_checks_health_and_exact_running_version(
@@ -62,7 +62,7 @@ class RuntimeTests(unittest.TestCase):
         )
         self.assertEqual(request.call_args_list[1].kwargs, {})
 
-    @patch("bsm_supervisor.runtime.SystemdService")
+    @patch("bsm_supervisor.runtime.service_backend")
     @patch("bsm_supervisor.runtime.control_record")
     @patch("bsm_supervisor.runtime.request")
     def test_http_200_degraded_and_wrong_version_are_not_ready(
@@ -79,7 +79,7 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(runtime.RuntimeErrorBase, "version"):
             runtime.ready(self.config, "4.0.0b7")
 
-    @patch("bsm_supervisor.runtime.SystemdService")
+    @patch("bsm_supervisor.runtime.service_backend")
     @patch("bsm_supervisor.runtime.control_record")
     @patch("bsm_supervisor.runtime.request")
     def test_local_readiness_needs_no_user_token(self, request, record, service):
@@ -102,7 +102,7 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(runtime.RuntimeErrorBase, "different"):
             runtime.ready(config, "4.0.0b7")
 
-    @patch("bsm_supervisor.runtime.SystemdService")
+    @patch("bsm_supervisor.runtime.service_backend")
     @patch("bsm_supervisor.runtime.control_record")
     @patch("bsm_supervisor.runtime.request")
     def test_rejected_local_credential_never_falls_back_to_user_token(
@@ -180,7 +180,7 @@ class RuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(runtime.RuntimeErrorBase, "loopback"):
                 runtime.control_record(self.config, {"MainPID": "99"})
 
-    @patch("bsm_supervisor.runtime.SystemdService")
+    @patch("bsm_supervisor.runtime.service_backend")
     @patch("bsm_supervisor.runtime.control_record")
     @patch("bsm_supervisor.runtime.request")
     def test_shutdown_requires_matching_receipt(self, request, record, service):

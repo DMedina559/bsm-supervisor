@@ -16,7 +16,7 @@ from .install import install, run_command
 from .integration import inspect, require_managed
 from .launchguard import boot_identity, controller_pid, permit_path, process_generation
 from .releases import Release, discover, select
-from .service import SystemdService
+from .service import service_backend
 from .store import Store
 
 
@@ -141,7 +141,7 @@ def _selected(config: Config, store: Store, plan: dict) -> dict:
 
 
 def _quiesce(config: Config) -> None:
-    service = SystemdService(config)
+    service = service_backend(config)
     state = service.status()
     require_managed(config, state)
     if state.get("ActiveState") == "failed" and state.get("MainPID") == "0":
@@ -157,7 +157,7 @@ def _stop(config: Config, store: Store) -> None:
 def _start(config: Config, store: Store, plan: dict, version: str) -> dict:
     with _trial(config, plan["id"], plan["key"]):
         with store.mutation("upgrade:start", preserve_on_error=True):
-            SystemdService(config).control("start")
+            service_backend(config).control("start")
             return runtime.wait_ready(config, version)
 
 
@@ -289,7 +289,7 @@ def upgrade(
             "Choose a newer release or explicitly allow same-version repair"
         )
     _runtime_directory(config)
-    state = SystemdService(config).status()
+    state = service_backend(config).status()
     require_managed(config, state)
     if state.get("ActiveState") not in ("active", "inactive"):
         raise ValueError("Upgrade requires an active or cleanly inactive service")
@@ -386,7 +386,7 @@ def recover(config: Config, store: Store, workflow_id: int, action: str) -> dict
                         "Started upgrades require resume or explicit data restoration"
                     )
                 # No new-version startup was attempted; selecting the original is safe.
-                state = SystemdService(config).status()
+                state = service_backend(config).status()
                 if state.get("ActiveState") == "active":
                     runtime.ready(config, plan["original"]["version"])
                 else:

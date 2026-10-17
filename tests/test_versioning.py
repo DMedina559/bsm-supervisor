@@ -81,7 +81,7 @@ class VersioningTests(unittest.TestCase):
         self.assertEqual(self.version(), "0.2.0b2.dev1")
 
     def test_installer_validates_override_without_rewriting_scm_source(self):
-        script = Path("scripts/install-lxc.sh").read_text()
+        script = Path("scripts/lib/install-systemd.sh").read_text()
         program = script.split("<<'PYVERSION'\n", 1)[1].split("\nPYVERSION\n", 1)[0]
         (self.checkout / "pyproject.toml").write_text("[tool.setuptools_scm]\n")
         module = self.checkout / "src/bsm_supervisor/__init__.py"

@@ -33,7 +33,7 @@ from .activation import selection
 from .checkpoint_files import read_json, write_json
 from .config import Config
 from .launchguard import boot_identity, controller_pid, process_generation
-from .service import SystemdService
+from .service import service_backend
 from .store import BusyError, Store
 from .transfer import private_secret
 
@@ -203,7 +203,7 @@ class Console:
             self.config = Config.load(self.config_path)
         store = Store(self.config.state_dir)
         try:
-            status: dict = SystemdService(self.config).status()
+            status: dict = service_backend(self.config).status()
             status = {
                 key: status.get(key)
                 for key in ("ActiveState", "SubState", "MainPID", "Result")
