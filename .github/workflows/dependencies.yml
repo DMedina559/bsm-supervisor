@@ -8,7 +8,18 @@ on:
         default: ''
         type: string
   push:
+    branches: [main]
+    paths:
+      - pyproject.toml
+      - package.json
+      - package-lock.json
+      - .github/workflows/dependencies.yml
   pull_request:
+    paths:
+      - pyproject.toml
+      - package.json
+      - package-lock.json
+      - .github/workflows/dependencies.yml
   schedule:
     - cron: '0 10 * * 1'
   workflow_dispatch:
