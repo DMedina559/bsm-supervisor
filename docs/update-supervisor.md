@@ -5,6 +5,7 @@ Proxmox host, use `pct enter` followed by the container ID first.
 
 ## Update from the CLI
 
+The CLI update requires an existing supervisor-managed BSM unit.
 On versions that provide the update command, run:
 
 ```sh

@@ -146,6 +146,10 @@ def _update(
                     "An update needs inspection; use supervisor-update --resume"
                 )
             state = SystemdService(config).status()
+            if state.get("Description") != "Bedrock Server Manager (BSM Supervisor)":
+                raise UpdateError(
+                    "Supervisor updates require an existing supervisor-managed BSM unit"
+                )
             if state.get("ActiveState") not in (
                 "active",
                 "inactive",

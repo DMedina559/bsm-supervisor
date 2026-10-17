@@ -48,6 +48,7 @@ class AdministrationTests(unittest.TestCase):
             "MainPID": "0",
             "Job": "",
             "User": "bsm",
+            "Description": "Bedrock Server Manager (BSM Supervisor)",
             "ExecStart": "{ path=/usr/bin/flock ; argv[]="
             + managed_command(self.config)
             + " ; }",
@@ -445,3 +446,21 @@ class AdministrationTests(unittest.TestCase):
             with self.assertRaises(subprocess.TimeoutExpired):
                 self_update.execute(["/bin/bash", "installer"], timeout=1)
         kill.assert_called_once_with(1234, signal.SIGKILL)
+
+    def test_updater_rejects_unmanaged_services_before_download_or_shutdown(self):
+        state = {
+            **self.stopped(),
+            "ActiveState": "active",
+            "MainPID": "55",
+            "Description": "Unmanaged BSM",
+        }
+        with (
+            patch("bsm_supervisor.service.SystemdService.status", return_value=state),
+            patch("bsm_supervisor.self_update.fetch") as fetch,
+            patch("bsm_supervisor.self_update.runtime.shutdown") as shutdown,
+        ):
+            with self.assertRaisesRegex(self_update.UpdateError, "supervisor-managed"):
+                self_update.update(self.config, self.config_file, self.store, "dev")
+        fetch.assert_not_called()
+        shutdown.assert_not_called()
+        self.assertFalse((self.config.state_dir / "supervisor-update.json").exists())
