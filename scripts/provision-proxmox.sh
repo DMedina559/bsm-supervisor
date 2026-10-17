@@ -20,8 +20,9 @@ memory=2048
 swap=512
 disk=16
 onboot=0
-ref=dev
+ref=latest
 source_dir=
+package_version=
 dry_run=false
 creation_attempted=false
 interactive=false
@@ -46,7 +47,7 @@ Usage: provision-proxmox.sh [OPTIONS]
   --cores N --memory MB --swap MB --disk GB
                              Defaults: 2 CPUs, 2048 MB RAM, 512 MB swap, 16 GB disk
   --onboot                   Start container when host boots
-  --ref BRANCH_OR_SHA         Supervisor revision (default: dev)
+  --ref BRANCH_OR_SHA         Supervisor release/ref (default: latest stable)
   --source-dir CHECKOUT       Use local source instead of private GitHub download
   --interactive              Guided Default/Advanced setup wizard
   --dry-run                  Read-only preflight and command preview
@@ -61,7 +62,7 @@ while (($#)); do
         --dry-run) dry_run=true; shift ;;
         --onboot) onboot=1; shift ;;
         --help|-h) usage; exit 0 ;;
-        --ctid|--bsm-env-file|--bsm-host|--hostname|--storage|--template-storage|--template|--bridge|--ip|--gateway|--nameserver|--vlan|--cores|--memory|--swap|--disk|--ref|--source-dir)
+        --ctid|--bsm-env-file|--bsm-host|--hostname|--storage|--template-storage|--template|--bridge|--ip|--gateway|--nameserver|--vlan|--cores|--memory|--swap|--disk|--ref|--source-dir|--package-version)
             (($# >= 2)) || fail "Missing value for $1"
             [[ $1 != --bsm-host ]] || bsm_host_explicit=1
             option=${1#--}; option=${option//-/_}
@@ -293,16 +294,53 @@ trap cleanup EXIT
 if [[ -z $source_dir ]]; then
     command -v curl >/dev/null || fail 'Install curl on the host, or pass --source-dir.'
     token=${GH_TOKEN:-}
-    if [[ -z $token && -t 0 ]]; then read -r -s -p 'GitHub token: ' token; echo; fi
     : > "$work/auth"
     if [[ -n $token ]]; then
         [[ $token =~ ^[A-Za-z0-9_]+$ ]] || fail 'Invalid token format.'
         printf 'header = "Authorization: Bearer %s"\n' "$token" > "$work/auth"
     fi
     unset token GH_TOKEN
-    curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-        --connect-timeout 20 --max-time 300 --config "$work/auth" \
-        "https://api.github.com/repos/DMedina559/bsm-supervisor/tarball/$ref" -o "$work/source.tar.gz"
+    github_download() {
+        local url=$1 destination=$2 status
+        if status=$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --connect-timeout 20 --max-time 300 --write-out '%{http_code}' --config "$work/auth" \
+            "$url" -o "$destination"); then return; fi
+        if [[ ! -s $work/auth && $status == 404 ]]; then
+            local visibility
+            visibility=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                --connect-timeout 10 --max-time 20 --proto '=https' \
+                'https://api.github.com/repos/DMedina559/bsm-supervisor') || visibility=000
+            if [[ $visibility == 200 ]]; then
+                echo 'Public repository resource not found. Choose a published release tag or --ref dev.' >&2
+                return 1
+            fi
+        fi
+        if [[ ! -s $work/auth && -t 0 && ( $status == 401 || $status == 403 || $status == 404 ) ]]; then
+            read -r -s -p 'GitHub token for private repository access: ' token
+            echo
+            [[ $token =~ ^[A-Za-z0-9_]+$ ]] || { echo 'Invalid token format.' >&2; return 1; }
+            printf 'header = "Authorization: Bearer %s"\n' "$token" > "$work/auth"
+            unset token
+            curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+                --connect-timeout 20 --max-time 300 --config "$work/auth" "$url" -o "$destination"
+        else
+            echo 'Download failed. Check the release/ref and network; private repositories require GH_TOKEN.' >&2
+            return 1
+        fi
+    }
+    if [[ $ref == latest ]]; then
+        github_download 'https://api.github.com/repos/DMedina559/bsm-supervisor/releases/latest' "$work/release.json"
+        ref=$(python3 - "$work/release.json" <<'PYTAG'
+import json, re, sys
+value = json.load(open(sys.argv[1]))
+tag = value.get('tag_name', '')
+if value.get('draft') or value.get('prerelease') or not re.fullmatch(r'v[0-9][A-Za-z0-9.+!-]*', tag):
+    raise SystemExit('No eligible stable supervisor release; select an explicit prerelease tag or --ref dev')
+print(tag)
+PYTAG
+)
+    fi
+    github_download "https://api.github.com/repos/DMedina559/bsm-supervisor/tarball/$ref" "$work/source.tar.gz"
     rm -f "$work/auth"
     python3 - "$work" <<'PY'
 import pathlib, sys, tarfile
@@ -368,7 +406,7 @@ pct exec "$ctid" -- tar --extract --gzip --file /root/bsm-supervisor-bootstrap/s
     --directory /root/bsm-supervisor-bootstrap --no-same-owner --no-same-permissions
 echo "[4/4] Installing supervisor and managed BSM unit"
 pct exec "$ctid" -- bash /root/bsm-supervisor-bootstrap/scripts/install-lxc.sh \
-    --source-dir /root/bsm-supervisor-bootstrap --install-bsm-unit
+    --source-dir /root/bsm-supervisor-bootstrap --ref "$ref" --package-version "$package_version" --install-bsm-unit
 pct exec "$ctid" -- rm -rf /root/bsm-supervisor-bootstrap
 printf '\nLXC %s is ready. Enter it with: pct enter %s\n' "$ctid" "$ctid"
 echo 'Supervisor is installed; BSM has not been installed or started.'

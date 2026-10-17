@@ -14,6 +14,7 @@ from . import checkpoints
 from .checkpoint_files import (
     MAX_ENTRIES,
     MAX_MANIFEST_BYTES,
+    mount_points,
     sync_directory,
     sync_payload,
     validate_entries,
@@ -100,25 +101,56 @@ def _crypt(source: Path, target: Path, password: bytes, decrypt: bool) -> None:
         os.fsync(outgoing.fileno())
 
 
+def destination_guard(
+    destination: Path, require_mount: Path | None = None
+) -> tuple | None:
+    """Optionally require a specific mount instead of its underlying directory."""
+    if not destination.is_absolute() or not destination.parent.is_dir():
+        raise ValueError(
+            "Export destination needs an existing absolute parent directory"
+        )
+    if require_mount is None:
+        return None
+    if not require_mount.is_absolute() or require_mount.is_symlink():
+        raise ValueError("Required mount must be an absolute nonsymlink path")
+    anchor = require_mount.resolve()
+    if anchor not in mount_points() and not os.path.ismount(anchor):
+        raise ValueError("Required backup mount is not mounted")
+    parent = destination.parent.resolve()
+    if parent != anchor and anchor not in parent.parents:
+        raise ValueError("Export destination is outside the required mount")
+    info = anchor.stat()
+    return info.st_dev, info.st_ino
+
+
 def export_checkpoint(
     config: Config,
     store: Store,
     checkpoint_id: str,
     destination: Path,
     passphrase_file: Path | None = None,
+    require_mount: Path | None = None,
 ) -> dict:
-    """Export an immutable checkpoint; never overwrite an existing destination."""
-    if not destination.is_absolute():
-        raise ValueError("Export destination must be absolute")
+    """Stage plaintext privately; publish a complete archive without overwriting."""
+    mounted = destination_guard(destination, require_mount)
     password = private_secret(passphrase_file) if passphrase_file else None
     with store.mutation("checkpoint:export:" + checkpoint_id):
         manifest = checkpoints.verify(config, checkpoint_id)
         root = checkpoints.checkpoint_path(config, checkpoint_id)
-        with tempfile.TemporaryDirectory(
-            prefix=".bsm-export-", dir=destination.parent
-        ) as tmp:
-            staging = Path(tmp)
-            archive = staging / "checkpoint.zip"
+        needed = manifest["total_bytes"] + MAX_MANIFEST_BYTES + 64 * 1024**2
+        for filesystem in (config.state_dir, destination.parent):
+            if shutil.disk_usage(filesystem).free < needed:
+                raise ValueError("Insufficient free space for checkpoint export")
+        # Both temporary directories are private, but plaintext is always local.
+        with (
+            tempfile.TemporaryDirectory(
+                prefix=".export-", dir=config.state_dir
+            ) as local,
+            tempfile.TemporaryDirectory(
+                prefix=".bsm-export-", dir=destination.parent
+            ) as remote,
+        ):
+            archive = Path(local) / "checkpoint.zip"
             with zipfile.ZipFile(
                 archive, "w", compression=zipfile.ZIP_STORED
             ) as bundle:
@@ -128,16 +160,17 @@ def export_checkpoint(
                         if item["kind"] == "file":
                             name = "payload/" + record["id"] + "/" + item["name"]
                             bundle.write(root / name, name)
-            archive.chmod(0o600)
+            staged = Path(remote) / "archive"
             if password is not None:
-                encrypted = staging / "checkpoint.enc"
-                _crypt(archive, encrypted, password, False)
-                archive = encrypted
-            archive.chmod(0o600)
-            with archive.open("rb") as stream:
+                _crypt(archive, staged, password, False)
+            else:
+                shutil.copyfile(archive, staged)
+            staged.chmod(0o600)
+            with staged.open("rb") as stream:
                 os.fsync(stream.fileno())
-            # Hard link publication is atomic and refuses files and dangling links.
-            os.link(archive, destination)
+            if destination_guard(destination, require_mount) != mounted:
+                raise ValueError("Backup mount changed during export")
+            os.link(staged, destination)
             sync_directory(destination.parent)
         return {
             "id": checkpoint_id,
@@ -177,6 +210,8 @@ def import_checkpoint(
         if encrypted:
             if password is None:
                 raise ValueError("Encrypted archive requires --passphrase-file")
+            if shutil.disk_usage(staging).free < source.stat().st_size + 64 * 1024**2:
+                raise ValueError("Insufficient free space to decrypt checkpoint")
             archive = staging / "decrypted.zip"
             _crypt(source, archive, password, True)
         elif password is not None:
@@ -201,6 +236,10 @@ def import_checkpoint(
             candidate.mkdir(mode=0o700, parents=True)
             (candidate / "manifest.json").write_text(json.dumps(manifest))
             checkpoints.load(sandbox, checkpoint_id)
+            if manifest["total_bytes"] > max_bytes:
+                raise ValueError("Archive payload exceeds its allowed size")
+            if shutil.disk_usage(staging).free < manifest["total_bytes"] + 64 * 1024**2:
+                raise ValueError("Insufficient free space to import checkpoint")
             expected = {"manifest.json"}
             total = 0
             for record in manifest["roots"]:

@@ -3,6 +3,8 @@ installations_dir = "/opt/bsm/installations"
 data_dir = "/srv/bsm"
 service_unit = "bedrock-server-manager-webui.service"
 service_timeout = 240
+# Maximum runtime of a console child command, in seconds (1–86400).
+web_job_timeout = 3600
 # LXC default: reachable on all IPv4 interfaces. Use 127.0.0.1 for a local proxy.
 bsm_host = "0.0.0.0"
 bsm_port = 11325

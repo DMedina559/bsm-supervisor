@@ -2,7 +2,7 @@
 
 Install, manage, upgrade, and recover [Bedrock Server Manager](https://github.com/DMedina559/bedrock-server-manager) inside a Linux system or Proxmox LXC.
 
-**Early development.** The supervisor currently provides a local CLI and managed systemd integration. An independent authenticated web console, opt-in maintenance schedules, and portable encrypted checkpoints are available.
+**Experimental software.** The supervisor currently provides a local CLI and managed systemd integration. An independent authenticated web console, opt-in maintenance schedules, and portable encrypted checkpoints are available.
 
 ## Get started
 
@@ -10,6 +10,7 @@ Choose the guide for your installation:
 
 | Task | Guide |
 | --- | --- |
+| Review compatibility and support | [Compatibility](docs/support.md) |
 | Create a new container from the Proxmox host | [Proxmox host setup](docs/proxmox-host.md) |
 | Install inside an existing container | [LXC installation](docs/install-lxc.md) |
 | Guided setup, diagnostics, and readiness checks | [Administration](docs/administration.md) |

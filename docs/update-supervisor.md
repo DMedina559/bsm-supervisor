@@ -14,7 +14,7 @@ bsm-supervisor version
 bsm-supervisor doctor
 ```
 
-The command resolves `dev` to an exact commit, downloads the installer from that
+The command selects the latest stable release and resolves its tag to an exact commit, downloads the installer from that
 same revision, and stages a permanent supervisor environment while BSM remains
 available. It then gracefully stops a running BSM, refreshes the managed unit and
 private environment with the new interpreter, and restarts BSM only if it was
@@ -49,25 +49,20 @@ and the current service unit. Omit `--install-bsm-unit` for an existing unit.
 Download fresh source rather than rerunning a stale bootstrap checkout.
 
 ```bash
-REVISION=dev # Or a full commit SHA for a fixed revision.
-read -r -s -p 'GitHub token: ' GH_TOKEN
-printf '\n'
-export GH_TOKEN
 installer=$(mktemp /tmp/bsm-supervisor-update-XXXXXXXX.sh)
-if [[ $GH_TOKEN =~ ^[A-Za-z0-9_]+$ ]] && \
-    printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/vnd.github.raw+json"\n' "$GH_TOKEN" | \
-    curl --config - --fail --silent --show-error --proto '=https' \
-    "https://api.github.com/repos/DMedina559/bsm-supervisor/contents/scripts/install-lxc.sh?ref=$REVISION" \
+if curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+    --connect-timeout 20 --max-time 300 \
+    "https://github.com/DMedina559/bsm-supervisor/releases/latest/download/install-lxc.sh" \
     -o "$installer"; then
-    bash "$installer" --ref "$REVISION"
+    bash "$installer"
 fi
 rm -f "$installer"
-unset GH_TOKEN REVISION
 ```
 
-Only continue if the installer reports success. The same read-only repository
-token used for initial installation is sufficient. Set `REVISION` to a full commit SHA to select an immutable revision. Updating the supervisor
-does not update the installed BSM package.
+Continue only after the installer reports success. To select a prerelease,
+replace `releases/latest/download` with `releases/download/TAG`. Release assets
+pin the source commit and package version. Updating the supervisor preserves the
+selected BSM package.
 
 ## Refresh the managed unit
 

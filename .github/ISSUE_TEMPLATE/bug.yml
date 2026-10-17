@@ -1,0 +1,29 @@
+name: Bug report
+description: Report an installation, console, service or recovery problem.
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include reproduction steps, expected behavior and actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions and platform
+      description: Include bsm-supervisor version, selected BSM version, distribution, Python version and Proxmox version when applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Include relevant doctor, status and history output. Review it and remove credentials, private hostnames or other sensitive information before posting.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Include the failing command or console job output. Never post tokens, passphrases or private environment files.
+      render: text

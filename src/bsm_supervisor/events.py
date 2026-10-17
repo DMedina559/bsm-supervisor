@@ -48,6 +48,10 @@ def configure(state_dir: Path, source: Path) -> None:
     write_json(state_dir / "notifications.json", value)
 
 
+class DeliveryError(ValueError):
+    """A retryable notification transport failure; original work is unaffected."""
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     """Keep private webhook URLs and payloads on their configured destination."""
 
@@ -89,7 +93,7 @@ def deliver(state_dir: Path, store=None) -> dict:
                         if not 200 <= response.status < 300:
                             raise OSError("Webhook rejected delivery")
                 except (OSError, urllib.error.URLError) as exc:
-                    raise ValueError(
+                    raise DeliveryError(
                         "Notification delivery failed; cursor retained for retry"
                     ) from exc
                 delivered += 1

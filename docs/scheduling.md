@@ -39,8 +39,9 @@ when work may **start**; an upgrade already running may finish after the window.
 | `check-updates` | Record the latest eligible version and whether it is newer; `selector` is `stable` or `prerelease` |
 | `upgrade` | Coordinated checkpointed upgrade only when a newer version exists; requires `maintenance_confirmed: true` and `accept_migrations: true` |
 | `checkpoint` | Gracefully stop a running managed service, capture, then restart with readiness verification; requires `maintenance_confirmed: true` |
-| `export` | Export the most recent completed checkpoint to an existing absolute `destination` directory; optional absolute `passphrase_file` |
+| `export` | Export the most recent completed checkpoint to an existing absolute `destination` directory; optional absolute `passphrase_file` and `require_mount` |
 | `prune` | Apply existing protected retention with `keep` of at least 1; requires `maintenance_confirmed: true` |
+| `journal-prune` | Remove old completed console logs and progress events; `keep_days` defaults to 30, `keep_jobs` to 100; requires `maintenance_confirmed: true` |
 | `notify` | Deliver queued completion notifications to the explicitly configured webhook |
 
 An export never overwrites an existing archive. Re-exporting the same checkpoint
@@ -98,12 +99,24 @@ Delivery is ordered, bounded to 100 events per invocation, and at least once.
 The durable cursor advances after success; a timeout or rejected request retains
 the failed event for retry. Receivers should deduplicate by event ID. The first
 delivery includes retained completion events from the journal. Delivery failure
-does not change the outcome of the original operation. Disable delivery with:
+does not change the outcome of the original operation. A notification transport
+failure records `retry` and the next permitted timer run attempts delivery again;
+it does not require schedule acknowledgement. Failed destructive maintenance
+continues to require inspection and acknowledgement. Disable delivery with:
 
 ```bash
 bsm-supervisor notifications-disable
 ```
 
-The journal currently retains all progress events; plan local storage retention
-for long-running installations. The CLI `history` command retains its existing
-100-operation display limit.
+Remove old progress and completed console logs explicitly, or configure a
+`journal-prune` schedule:
+
+```bash
+bsm-supervisor journal-prune --keep-days 30 --keep-jobs 100 --delete-confirmed
+```
+
+Cleanup preserves recent jobs, interrupted/running jobs, unresolved recovery
+records, and events awaiting delivery while notifications are configured.
+Operation/workflow history is retained. SQLite reuses deleted event pages;
+cleanup does not compact the database file. Console output is capped at 8 MiB
+per job. The `history` command displays the latest 100 operations.

@@ -8,6 +8,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  browser:
+    uses: ./.github/workflows/browser.yml
+  dependencies:
+    uses: ./.github/workflows/dependencies.yml
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -25,7 +29,7 @@ jobs:
       - run: python -m flake8 src tests
       - run: python -m mypy src
   release:
-    needs: test
+    needs: [test, browser, dependencies]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -84,7 +88,7 @@ jobs:
           root = Path('dist')
           for name in ('install-lxc.sh', 'provision-proxmox.sh'):
               path = root / name
-              path.write_text(path.read_text().replace('ref=dev\n', 'ref=' + os.environ['RELEASE_SHA'] + '\n', 1))
+              path.write_text(path.read_text().replace('ref=latest\n', 'ref=' + os.environ['RELEASE_SHA'] + '\n', 1).replace('package_version=\n', 'package_version=' + os.environ['RELEASE_TAG'][1:] + '\n', 1))
           (root / 'release.json').write_text(json.dumps({'tag': os.environ['RELEASE_TAG'], 'commit': os.environ['RELEASE_SHA']}, indent=2))
           (root / 'SHA256SUMS').write_text(''.join(hashlib.sha256(path.read_bytes()).hexdigest() + '  ' + path.name + '\n' for path in sorted(root.iterdir())))
           PY
@@ -97,4 +101,5 @@ jobs:
           if python -c 'import os; from packaging.version import Version; raise SystemExit(not Version(os.environ["RELEASE_TAG"][1:]).is_prerelease)'; then
             args+=(--prerelease)
           fi
-          gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes "${args[@]}"
+          printf '%s\n' 'Experimental software. Validate recovery in a disposable LXC before deployment.' > /tmp/release-notes.md
+          gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes --notes-file /tmp/release-notes.md "${args[@]}"

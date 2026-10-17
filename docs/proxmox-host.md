@@ -10,29 +10,25 @@ on the host.
 
 ## Launch the wizard
 
-Because this repository is private, download it with a GitHub token scoped to this repository with **Contents: read-only** permission:
+Download the latest stable release launcher. Public downloads require no GitHub token:
 
 ```bash
-REVISION=dev # Or a full commit SHA for a fixed revision.
-read -r -s -p 'GitHub token: ' GH_TOKEN
-printf '\n'
-export GH_TOKEN
 installer=$(mktemp /tmp/bsm-supervisor-proxmox-XXXXXXXX.sh)
-if [[ $GH_TOKEN =~ ^[A-Za-z0-9_]+$ ]] && \
-    printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/vnd.github.raw+json"\n' "$GH_TOKEN" | \
-    curl --config - --fail --silent --show-error --proto '=https' \
-    "https://api.github.com/repos/DMedina559/bsm-supervisor/contents/scripts/provision-proxmox.sh?ref=$REVISION" \
+if curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+    --connect-timeout 20 --max-time 300 \
+    "https://github.com/DMedina559/bsm-supervisor/releases/latest/download/provision-proxmox.sh" \
     -o "$installer"; then
-    bash "$installer" --ref "$REVISION" --interactive
+    bash "$installer" --interactive
 fi
 rm -f "$installer"
-unset GH_TOKEN REVISION
 ```
 
 With a local checkout, run `bash scripts/provision-proxmox.sh` directly. No
 arguments and a terminal launch the wizard automatically. `--interactive` also
-opens the wizard when combining options. Set `REVISION` to a full commit SHA to pin the script and source archive to an
-immutable revision.
+opens the wizard when combining options. Release launcher assets pin their source commit. To select a prerelease, use
+`releases/download/TAG` in the URL. The latest-stable URL requires a published
+stable release. Development source is an explicit `--ref dev` choice. Private
+source downloads accept `GH_TOKEN` with Contents: read-only access.
 
 1. Choose **Default** or **Advanced** settings.
 2. Select container disk storage and template storage from this node's active

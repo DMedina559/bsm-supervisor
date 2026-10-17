@@ -62,7 +62,9 @@ start/restart with readiness checks, graceful stop, checkpoint creation,
 verification, restore inspection, and explicit data restoration. It also shows
 service state, operations, upgrade workflows, scheduled runs, and progress.
 Checkpoint creation does not stop BSM automatically; stop it first. Upgrade
-handles its own coordinated shutdown. Each console action runs the existing CLI
+handles its own coordinated shutdown. Busy actions return HTTP 409; validation failures return HTTP 400. The console
+disables duplicate submissions while an action is pending or requires recovery.
+Each console action runs the existing CLI
 as a child process, without a shell or arbitrary command execution.
 
 Downtime and data changes require explicit confirmation. Migration acceptance is
@@ -71,7 +73,9 @@ restoration replaces saved data and discards newer changes. Binary downgrade is
 not an automatic recovery action.
 
 Console jobs have durable IDs and private logs beneath `state_dir/web-jobs`.
-Expand a console job to read the last 32 KiB of output, including a restore plan.
+Expand a console job to read the last 32 KiB of captured output, including a
+restore plan. Jobs are listed newest first. Captured output is capped at 8 MiB;
+use `journal-prune` for completed-log retention.
 The CLI operation journal remains authoritative for interrupted service/data
 changes. After inspecting status/history and completing any required upgrade or
 restore recovery, acknowledge an interrupted console job:
@@ -79,6 +83,11 @@ restore recovery, acknowledge an interrupted console job:
 ```bash
 bsm-supervisor web-job-acknowledge JOB_ID --service-checked
 ```
+
+Live process leases prevent acknowledgement while a console child is executing.
+The `web_job_timeout` configuration value limits each command to 3600 seconds by
+default (1–86400). Timeout terminates its process group and records an interrupted
+job requiring inspection; it does not restore data or acknowledge CLI operations.
 
 This clears console bookkeeping only. It does not clear a pending CLI operation,
 restore data, or restart BSM. Restarting/updating the console can interrupt a
@@ -93,3 +102,18 @@ log retention according to available storage. All authenticated console users ha
 The footer links to the project source. If deploying a modified network-facing
 version, provide users access to the corresponding source for that version as
 required by AGPLv3; update the source link to your fork or source offer.
+
+
+## HTTPS proxy example
+
+With Caddy running inside the LXC, configure the console origin to match the
+hostname and proxy its loopback listener:
+
+```caddyfile
+supervisor.example.com {
+    reverse_proxy 127.0.0.1:11326
+}
+```
+
+Keep the console bound to loopback for this arrangement. The proxy preserves the
+Host header; forwarded identity headers are ignored by the console.

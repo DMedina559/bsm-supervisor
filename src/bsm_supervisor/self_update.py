@@ -17,6 +17,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
+from packaging.version import Version
+
 from . import runtime
 from .checkpoint_files import read_json, write_json
 from .config import Config
@@ -183,18 +185,70 @@ def _update(
             source_dir = Path(plan["source_dir"]) if plan.get("source_dir") else None
             if source_dir is None:
                 token = os.environ.get("GH_TOKEN", "")
-                if not token and sys.stdin.isatty():
-                    token = getpass.getpass(
-                        "GitHub token with repository read access: "
-                    )
                 if token and not re.fullmatch(r"[A-Za-z0-9_]+", token):
                     raise UpdateError("Invalid GitHub token format")
+
+                def download(path: str, limit: int) -> bytes:
+                    nonlocal token
+                    try:
+                        return fetch(path, token, limit)
+                    except UpdateError as exc:
+                        if (
+                            token
+                            or not sys.stdin.isatty()
+                            or not any(
+                                f"HTTP {status}" in str(exc)
+                                for status in (401, 403, 404)
+                            )
+                        ):
+                            raise
+                        if "HTTP 404" in str(exc):
+                            try:
+                                public = (
+                                    json.loads(fetch("", "", 65536)).get("private")
+                                    is False
+                                )
+                            except UpdateError:
+                                public = False
+                            if public:
+                                raise UpdateError(
+                                    "Public release/ref was not found; "
+                                    "select a published tag or dev"
+                                ) from None
+                        token = getpass.getpass(
+                            "GitHub token for private repository access: "
+                        )
+                        if not re.fullmatch(r"[A-Za-z0-9_]+", token):
+                            raise UpdateError("Invalid GitHub token format")
+                        return fetch(path, token, limit)
+
+                if ref == "latest" and not plan.get("revision"):
+                    release = json.loads(download("/releases/latest", 65536))
+                    tag = release.get("tag_name", "")
+                    if (
+                        not isinstance(tag, str)
+                        or not tag.startswith("v")
+                        or release.get("draft")
+                        or release.get("prerelease")
+                    ):
+                        raise UpdateError(
+                            "No eligible stable release; "
+                            "choose an explicit prerelease tag or dev"
+                        )
+                    plan["ref"] = ref = tag
+                if ref.startswith("v"):
+                    candidate_version = str(Version(ref[1:]))
+                    if ref != "v" + candidate_version:
+                        raise UpdateError(
+                            "Release tag must contain a normalized version"
+                        )
+                    plan["package_version"] = candidate_version
+                    write_json(progress, plan)
                 metadata = json.loads(
-                    fetch(
+                    download(
                         "/commits?sha="
                         + quote(plan.get("revision") or ref, safe="")
                         + "&per_page=1",
-                        token,
                         65536,
                     )
                 )
@@ -211,8 +265,8 @@ def _update(
                     )
                 plan["revision"] = revision
                 write_json(progress, plan)
-                installer = fetch(
-                    "/contents/scripts/install-lxc.sh?ref=" + revision, token, 262144
+                installer = download(
+                    "/contents/scripts/install-lxc.sh?ref=" + revision, 262144
                 )
             else:
                 source_dir = source_dir.resolve(strict=True)
@@ -228,6 +282,8 @@ def _update(
                     "--config",
                     str(config_path.resolve()),
                 ]
+                if plan.get("package_version"):
+                    arguments.extend(["--package-version", plan["package_version"]])
                 if source_dir is not None:
                     arguments.extend(["--source-dir", str(source_dir)])
                 environment = dict(os.environ)

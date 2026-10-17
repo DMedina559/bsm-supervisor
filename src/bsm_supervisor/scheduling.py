@@ -8,7 +8,7 @@ from pathlib import Path
 
 from packaging.version import Version
 
-from . import checkpoints, events, operations, runtime, transfer, upgrades
+from . import checkpoints, events, operations, retention, runtime, transfer, upgrades
 from .activation import selection
 from .checkpoint_files import read_json, write_json
 from .config import Config
@@ -17,7 +17,15 @@ from .releases import discover, select
 from .service import SystemdService
 from .store import Store
 
-ACTIONS = ("check-updates", "checkpoint", "upgrade", "export", "prune", "notify")
+ACTIONS = (
+    "check-updates",
+    "checkpoint",
+    "upgrade",
+    "export",
+    "prune",
+    "journal-prune",
+    "notify",
+)
 
 
 def policy(value: dict) -> dict:
@@ -34,7 +42,10 @@ def policy(value: dict) -> dict:
         "maintenance_confirmed",
         "destination",
         "passphrase_file",
+        "require_mount",
         "keep",
+        "keep_days",
+        "keep_jobs",
     }
     if not isinstance(value, dict) or value.keys() - allowed:
         raise ValueError("Unknown schedule policy fields")
@@ -71,7 +82,7 @@ def policy(value: dict) -> dict:
     ):
         raise ValueError("days must contain ISO weekdays 1 through 7")
     if (
-        value["action"] in ("checkpoint", "upgrade", "prune")
+        value["action"] in ("checkpoint", "upgrade", "prune", "journal-prune")
         and value.get("maintenance_confirmed") is not True
     ):
         raise ValueError("Scheduled mutations need maintenance_confirmed=true")
@@ -83,6 +94,11 @@ def policy(value: dict) -> dict:
         destination = value.get("destination", "")
         if not isinstance(destination, str) or not Path(destination).is_absolute():
             raise ValueError("Export schedule needs an absolute destination directory")
+    if "require_mount" in value and (
+        not isinstance(value["require_mount"], str)
+        or not Path(value["require_mount"]).is_absolute()
+    ):
+        raise ValueError("require_mount must be an absolute path")
     if "passphrase_file" in value and (
         not isinstance(value["passphrase_file"], str)
         or not Path(value["passphrase_file"]).is_absolute()
@@ -90,6 +106,9 @@ def policy(value: dict) -> dict:
         raise ValueError("passphrase_file must be an absolute path")
     if type(value.get("keep", 3)) is not int or value.get("keep", 3) < 1:
         raise ValueError("Scheduled retention must keep at least one checkpoint")
+    for field in ("keep_days", "keep_jobs"):
+        if type(value.get(field, 1)) is not int or value.get(field, 1) < 1:
+            raise ValueError("Journal retention values must be positive integers")
     return value
 
 
@@ -298,17 +317,44 @@ def run(config: Config, store: Store, name: str) -> dict:
                     latest_saved["id"]
                     + (".bsmcheckpoint.enc" if password else ".bsmcheckpoint")
                 )
-                # Refuse overwrites, including archives that were externally replaced.
+                if target.exists() or target.is_symlink():
+                    raise ValueError(
+                        "Export archive already exists; "
+                        "inspect or choose another destination"
+                    )
                 report["result"] = transfer.export_checkpoint(
-                    config, store, latest_saved["id"], target, password
+                    config,
+                    store,
+                    latest_saved["id"],
+                    target,
+                    password,
+                    (
+                        Path(value["require_mount"])
+                        if value.get("require_mount")
+                        else None
+                    ),
                 )
             elif action == "prune":
                 report["removed"] = checkpoints.prune(
                     config, store, value.get("keep", 3)
                 )
+            elif action == "journal-prune":
+                report["result"] = retention.prune(
+                    config,
+                    store,
+                    value.get("keep_days", 30),
+                    value.get("keep_jobs", 100),
+                )
             else:
                 report["result"] = events.deliver(config.state_dir, store)
             report["state"] = "succeeded"
+        except events.DeliveryError:
+            report.update(
+                state="retry",
+                remedy="Notification transport failed; retry at the next permitted run",
+            )
+            write_json(outcome, report)
+            return report
         except BaseException:
             # A killed process leaves 'running'; errors leave an explicit failed run.
             report["state"] = "failed"

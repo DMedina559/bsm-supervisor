@@ -1,14 +1,18 @@
 """Independent authenticated ASGI console using the existing operator CLI."""
 
 import asyncio
+import fcntl
 import hmac
 import json
 import os
 import re
 import secrets
+import selectors
+import signal
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -18,8 +22,9 @@ from . import checkpoints, events, scheduling
 from .activation import selection
 from .checkpoint_files import read_json, write_json
 from .config import Config
+from .launchguard import boot_identity, controller_pid, process_generation
 from .service import SystemdService
-from .store import Store
+from .store import BusyError, Store
 from .transfer import private_secret
 
 ASSETS = Path(__file__).parent / "assets"
@@ -135,21 +140,23 @@ class Console:
             "workflows": store.workflows(),
             "checkpoints": checkpoints.list_checkpoints(self.config),
             "schedules": scheduling.listing(self.config),
-            "jobs": [
-                read_json(path) for path in sorted(self.jobs.glob("*.json"))[-50:]
-            ],
+            "jobs": sorted(
+                (read_json(path) for path in self.jobs.glob("*.json")),
+                key=lambda job: job.get("created_at", ""),
+                reverse=True,
+            )[:50],
         }
 
     def submit(self, value: dict) -> dict:
         args = arguments(value)
         if not self.lock.acquire(blocking=False):
-            raise ValueError("Another console action is running")
+            raise BusyError("Another console action is running")
         try:
             if any(
-                read_json(path).get("state") == "running"
+                read_json(path).get("state") in ("running", "interrupted")
                 for path in self.jobs.glob("*.json")
             ):
-                raise ValueError(
+                raise BusyError(
                     "An interrupted console job requires web-job-acknowledge after "
                     "checking history and service state"
                 )
@@ -159,24 +166,39 @@ class Console:
                 "state": "running",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
-            write_json(self.jobs / (job["id"] + ".json"), job)
-            thread = threading.Thread(
-                target=self.execute, args=(dict(job), args), daemon=False
+            lease = os.open(
+                self.jobs / (job["id"] + ".lock"),
+                os.O_RDWR | os.O_CREAT | os.O_EXCL,
+                0o600,
             )
-            thread.start()
+            try:
+                fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                job.update(
+                    controller_pid=controller_pid(),
+                    controller_generation=process_generation(controller_pid()),
+                    boot_id=boot_identity(),
+                )
+                write_json(self.jobs / (job["id"] + ".json"), job)
+                thread = threading.Thread(
+                    target=self.execute, args=(dict(job), args, lease), daemon=False
+                )
+                thread.start()
+            except BaseException:
+                os.close(lease)
+                raise
             return job
         except BaseException:
             self.lock.release()
             raise
 
-    def execute(self, job: dict, args: list[str]) -> None:
-        """Keep output private and durable; surface exit status without "
-        "error secrets."""
+    def execute(self, job: dict, args: list[str], lease: int) -> None:
+        """Bound execution and retain a process lease until the child has exited."""
+        process = None
         try:
             log = self.jobs / (job["id"] + ".log")
             descriptor = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(descriptor, "wb") as stream:
-                result = subprocess.run(
+                process = subprocess.Popen(
                     [
                         sys.executable,
                         "-I",
@@ -187,24 +209,65 @@ class Console:
                         *args,
                     ],
                     stdin=subprocess.DEVNULL,
-                    stdout=stream,
+                    stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    check=False,
+                    start_new_session=True,
+                    pass_fds=(lease,),
                 )
+                job["child_pid"] = process.pid
+                try:
+                    job["child_generation"] = process_generation(process.pid)
+                except (OSError, ValueError, IndexError):
+                    job["child_generation"] = None
+                write_json(self.jobs / (job["id"] + ".json"), job)
+                assert process.stdout is not None
+                remaining = 8 * 1024 * 1024
+                deadline = time.monotonic() + self.config.web_job_timeout
+                try:
+                    with selectors.DefaultSelector() as selector:
+                        selector.register(process.stdout, selectors.EVENT_READ)
+                        while True:
+                            if time.monotonic() >= deadline:
+                                raise subprocess.TimeoutExpired(
+                                    args, self.config.web_job_timeout
+                                )
+                            readable = selector.select(timeout=0.2)
+                            if readable:
+                                data = os.read(process.stdout.fileno(), 65536)
+                                if not data:
+                                    break
+                                if remaining:
+                                    stream.write(data[:remaining])
+                                    remaining = max(0, remaining - len(data))
+                            elif process.poll() is not None:
+                                # Descendants holding stdout share the deadline.
+                                continue
+                    code = process.wait(timeout=max(0.01, deadline - time.monotonic()))
+                finally:
+                    process.stdout.close()
+                if remaining == 0:
+                    stream.write(b"\n[Console output truncated at 8 MiB]\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            job.update(state="succeeded" if code == 0 else "failed", exit_code=code)
+        except BaseException:
+            if process is not None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait()
             job.update(
-                state="succeeded" if result.returncode == 0 else "failed",
-                exit_code=result.returncode,
-            )
-        except Exception:
-            job.update(
-                state="failed",
-                remedy="Inspect the private job log and operation history",
+                state="interrupted",
+                remedy="Inspect service status and operation history, "
+                "recover, then acknowledge this job",
             )
         finally:
             job["finished_at"] = datetime.now(timezone.utc).isoformat()
             try:
                 write_json(self.jobs / (job["id"] + ".json"), job)
             finally:
+                os.close(lease)
                 self.lock.release()
 
     async def __call__(self, scope, receive, send) -> None:
@@ -291,11 +354,17 @@ class Console:
                     status = 404
             else:
                 status = 404
-        except (ValueError, KeyError):
+        except BusyError:
             status, body = (
-                400,
-                b'{"error":"Action blocked; inspect operation history"}',
+                409,
+                b'{"error":"Another operation is running or needs recovery"}',
             )
+        except (ValueError, KeyError) as error:
+            message = str(error) if isinstance(error, ValueError) else "Invalid request"
+            # Only action validation messages are safe to expose directly.
+            if path != "/api/actions":
+                message = "Invalid request"
+            status, body = 400, json.dumps({"error": message}).encode()
         except Exception:
             status, body = (
                 503,
@@ -345,14 +414,38 @@ def acknowledge(config: Config, store: Store, job_id: str) -> None:
     """Clear console bookkeeping only after the operator separately recovers BSM."""
     if not re.fullmatch(r"[0-9a-f]{32}", job_id):
         raise ValueError("Invalid console job ID")
-    with store.lock():
-        store.require_idle()
-        path = config.state_dir / "web-jobs" / (job_id + ".json")
-        job = read_json(path)
-        if job["state"] != "running":
-            raise ValueError("Console job is not interrupted")
-        job["state"] = "acknowledged"
-        write_json(path, job)
+    path = config.state_dir / "web-jobs" / (job_id + ".json")
+    lease_path = path.with_suffix(".lock")
+    descriptor = os.open(lease_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise BusyError("Console job is still executing") from exc
+        with store.lock():
+            store.require_idle()
+            job = read_json(path)
+            if job["state"] not in ("running", "interrupted"):
+                raise ValueError("Console job does not need acknowledgement")
+            # Legacy jobs have no lease. Check their recorded process identity too.
+            for prefix in ("controller", "child"):
+                pid = job.get(prefix + "_pid")
+                generation = job.get(prefix + "_generation")
+                try:
+                    alive = (
+                        job.get("boot_id") == boot_identity()
+                        and pid is not None
+                        and generation is not None
+                        and process_generation(pid) == generation
+                    )
+                except (OSError, ValueError, IndexError):
+                    alive = False
+                if alive and prefix == "child":
+                    raise BusyError("Console child process is still running")
+            job["state"] = "acknowledged"
+            write_json(path, job)
+    finally:
+        os.close(descriptor)
 
 
 def unit(config_path: Path, token_file: Path, origin: str) -> str:

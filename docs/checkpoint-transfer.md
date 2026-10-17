@@ -13,6 +13,10 @@ Export to an existing mounted backup directory using an absolute path:
 bsm-supervisor checkpoint-export CHECKPOINT_ID /mnt/backups/saved.bsmcheckpoint
 ```
 
+Use `--require-mount /mnt/backups` to refuse export when the expected mount is
+absent or changes during the operation. The destination must be inside that mount.
+Free-space checks reserve staging capacity before transfer.
+
 The destination is never overwritten, and is published as a mode-0600 file only
 after completion. Plain archives are ZIP files with a manifest and file payloads;
 links and ownership metadata are represented in the manifest. Hash verification
@@ -43,7 +47,9 @@ from the LXC and backup archive. Losing it prevents recovery.
 Encrypted format version 1 uses AES-256-GCM with a fresh 16-byte salt, 12-byte
 nonce, 16-byte authentication tag, and scrypt (`N=32768`, `r=8`, `p=1`). The
 `BSMENC01` header is authenticated along with the encrypted archive. Encryption
-streams files rather than loading worlds into memory. Import decrypts into a
+streams files rather than loading worlds into memory. Plaintext export staging
+is confined to private supervisor storage; encrypted exports write only ciphertext
+to the destination filesystem. Import decrypts into a
 private temporary directory and verifies authentication before reading the ZIP.
 Temporary plaintext needs local free space and is removed on normal failure or
 completion; storage-level encryption is needed to protect local disk remnants.

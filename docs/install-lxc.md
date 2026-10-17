@@ -9,36 +9,31 @@ to replace unrelated commands at either launcher path.
 To create the container from the Proxmox host instead, use the
 [guided host provisioner](proxmox-host.md).
 
-## Private repository download
+## Download and install
 
-The repository is private, so a plain unauthenticated raw URL will return 404.
-Use a fine-grained GitHub token scoped to this repository with **Contents: read-only**
-permission (or an equivalent repository read credential). Paste the following into
-the LXC console. The token is read without echo and is not placed in command
-arguments or saved in shell history.
+Download the latest stable release installer inside the LXC. Public downloads
+require no GitHub token. Inspect the downloaded script before executing it when
+reviewing a deployment.
 
 ```bash
 apt-get update
 apt-get install -y curl ca-certificates
-REVISION=dev # Or a full commit SHA for a fixed revision.
-read -r -s -p 'GitHub token: ' GH_TOKEN
-printf '\n'
-export GH_TOKEN
 installer=$(mktemp /tmp/bsm-supervisor-install-XXXXXXXX.sh)
-if [[ $GH_TOKEN =~ ^[A-Za-z0-9_]+$ ]] && \
-    printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/vnd.github.raw+json"\n' "$GH_TOKEN" | \
-    curl --config - --fail --silent --show-error --proto '=https' \
-    "https://api.github.com/repos/DMedina559/bsm-supervisor/contents/scripts/install-lxc.sh?ref=$REVISION" \
+if curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+    --connect-timeout 20 --max-time 300 \
+    "https://github.com/DMedina559/bsm-supervisor/releases/latest/download/install-lxc.sh" \
     -o "$installer"; then
-    bash "$installer" --ref "$REVISION" --install-bsm-unit
+    bash "$installer" --install-bsm-unit
 fi
 rm -f "$installer"
-unset GH_TOKEN REVISION
 ```
 
-Set `REVISION` to a full commit SHA to install a fixed revision.
-`dev` is the current development branch. Downloading the script first also lets
-you inspect it before running it.
+For an explicit release, including a prerelease, replace `releases/latest/download`
+with `releases/download/TAG`. The latest-stable URL requires a published stable
+release. To use a source checkout, run `bash scripts/install-lxc.sh --source-dir
+/absolute/path/to/checkout`; `--ref dev` explicitly selects development source.
+For private source downloads, supply `GH_TOKEN` with Contents: read-only access
+or use the hidden prompt after an authentication failure.
 
 The installer fetches the source archive over HTTPS, rejects archive links and
 unsafe paths, installs the supervisor, checks dependencies, validates configuration,
@@ -119,7 +114,7 @@ checkpoint restoration when returning to the original version and data.
 
 ## Reinstalling the supervisor
 
-See [updating the supervisor](update-supervisor.md) for a complete private-repository
+See [updating the supervisor](update-supervisor.md) for the complete supervisor
 download and managed unit refresh.
 
 Run the same installer without `--install-bsm-unit` to preserve an existing unit.

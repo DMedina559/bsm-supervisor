@@ -166,3 +166,62 @@ class BootstrapProvenanceTests(unittest.TestCase):
         source = self.base / "local"
         source.mkdir()
         self.assertIsNone(self.record(source)["revision"])
+
+
+class PublicDownloadTests(unittest.TestCase):
+    def test_public_download_uses_no_token_and_missing_public_ref_is_not_auth(self):
+        import os
+
+        for name in ("install-lxc.sh", "provision-proxmox.sh"):
+            with self.subTest(script=name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                binary = root / "bin"
+                binary.mkdir()
+                curl = binary / "curl"
+                curl.write_text(f"#!{sys.executable}\n" + """import os, pathlib, sys
+args=sys.argv[1:]
+url=next(value for value in args if value.startswith('https://'))
+available = os.environ.get('DOWNLOAD_FAIL') != '1'
+status='200' if available or url.endswith('/bsm-supervisor') else '404'
+if '-o' in args and status=='200':
+    pathlib.Path(args[args.index('-o')+1]).write_text('public archive')
+if '--write-out' in args: print(status,end='')
+raise SystemExit(0 if status=='200' else 22)
+""")
+                curl.chmod(0o755)
+                (root / "auth").touch(mode=0o600)
+                source = (
+                    Path(__file__).resolve().parents[1] / "scripts" / name
+                ).read_text()
+                function = source.split("    github_download() {\n", 1)[1].split(
+                    "\n    }\n", 1
+                )[0]
+                url = (
+                    "https://api.github.com/repos/DMedina559/bsm-supervisor/tarball/ref"
+                )
+                program = (
+                    "set -e; work=$1; github_download() {\n"
+                    + function
+                    + f'\n}}; github_download "{url}" "$work/archive"'
+                )
+                environment = dict(
+                    os.environ, PATH=str(binary) + os.pathsep + os.environ["PATH"]
+                )
+                result = subprocess.run(
+                    ["bash", "-c", program, "test", str(root)],
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "archive").read_text(), "public archive")
+                environment["DOWNLOAD_FAIL"] = "1"
+                result = subprocess.run(
+                    ["bash", "-c", program, "test", str(root)],
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Public repository resource not found", result.stderr)
+                self.assertNotIn("GitHub token for private", result.stderr)

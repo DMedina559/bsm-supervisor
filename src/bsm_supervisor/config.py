@@ -25,6 +25,7 @@ class Config:
     bsm_port: int = 11325
     bsm_db_url: str | None = None
     bsm_log_level: str | None = None
+    web_job_timeout: int = 3600
 
     @property
     def config_dir(self) -> Path:
@@ -59,6 +60,11 @@ class Config:
             "NOTSET",
         ):
             raise ValueError("Invalid BSM log level")
+        if (
+            type(self.web_job_timeout) is not int
+            or not 1 <= self.web_job_timeout <= 86400
+        ):
+            raise ValueError("web_job_timeout must be an integer from 1 to 86400")
         paths = (self.state_dir, self.installations_dir, self.data_dir)
         for path in paths:
             if not path.is_absolute():
@@ -109,6 +115,7 @@ class Config:
             "data_dir",
             "service_unit",
             "service_timeout",
+            "web_job_timeout",
             "bsm_config_dir",
             "checkpoint_paths",
             "api_token_file",

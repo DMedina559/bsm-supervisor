@@ -59,3 +59,19 @@ for inspection. Normal push/PR CI does not access a Proxmox host.
 Python unit tests and shell validation run in normal CI on Python 3.11 and 3.14.
 Those checks simulate service/provisioning boundaries; a successful live host run
 is separate evidence and must not be inferred from unit-test results.
+
+
+## Console regression tests
+
+Install the Python `web` extra and browser test dependencies with `npm ci`, then
+run `npm test` for session-race regressions and `npm run test:browser` for desktop
+and mobile browser checks. These use temporary supervisor state and do not
+control a BSM service. Browser checks cover login/lock, delayed responses,
+confirmation prompts, duplicate submissions, layout overflow, and forwarding
+through an HTTPS proxy origin. They require Google Chrome; set
+`BSM_BROWSER_EXECUTABLE` for a custom Chrome executable.
+
+The **Console browser tests** workflow uses Chrome provided by the hosted Ubuntu
+runner. Release publication requires the browser, dependency-audit and min/max
+Python jobs to succeed. Container and real proxy deployment validation remain
+part of the disposable host procedure.

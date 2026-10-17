@@ -2,8 +2,8 @@
 
 import asyncio
 import json
+import os
 import shutil
-import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -226,16 +226,13 @@ class ManagementTests(unittest.TestCase):
     def test_console_job_output_and_interrupted_job_block(self):
         job = {"id": "a" * 32, "action": "start", "state": "running"}
         write_json(self.console.jobs / (job["id"] + ".json"), job)
-        with self.assertRaisesRegex(ValueError, "interrupted"):
+        with self.assertRaisesRegex(BusyError, "interrupted"):
             self.console.submit({"action": "start"})
         web.acknowledge(self.config, self.store, job["id"])
         self.console.lock.acquire()
-        with patch(
-            "bsm_supervisor.web.subprocess.run",
-            return_value=subprocess.CompletedProcess([], 1),
-        ) as run:
-            self.console.execute(job, ["start", "--wait"])
-        self.assertFalse(run.call_args.kwargs.get("shell", False))
+        lease = os.open(self.console.jobs / (job["id"] + ".lock"), os.O_RDWR)
+        # Execute the real CLI with an absent configuration; capture its failure.
+        self.console.execute(job, ["start", "--wait"], lease)
         self.assertEqual(
             read_json(self.console.jobs / (job["id"] + ".json"))["state"], "failed"
         )

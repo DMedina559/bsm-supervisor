@@ -16,6 +16,7 @@ from . import (
     events,
     operations,
     restoration,
+    retention,
     runtime,
     scheduling,
     self_update,
@@ -72,6 +73,7 @@ def parser() -> argparse.ArgumentParser:
         )
         if name == "checkpoint-export":
             command.add_argument("destination", type=Path)
+            command.add_argument("--require-mount", type=Path)
         else:
             command.add_argument(
                 "--max-bytes", type=int, default=transfer.DEFAULT_LIMIT
@@ -80,6 +82,10 @@ def parser() -> argparse.ArgumentParser:
     progress = commands.add_parser("events")
     progress.add_argument("--after", type=int, default=0)
     progress.add_argument("--follow", action="store_true")
+    journal = commands.add_parser("journal-prune")
+    journal.add_argument("--keep-days", type=int, default=30)
+    journal.add_argument("--keep-jobs", type=int, default=100)
+    journal.add_argument("--delete-confirmed", action="store_true", required=True)
     commands.add_parser("schedules")
     schedule_install = commands.add_parser("schedule-install")
     schedule_install.add_argument("policy", type=Path)
@@ -118,7 +124,7 @@ def parser() -> argparse.ArgumentParser:
     setup.add_argument("--no-start", action="store_true")
     setup.add_argument("--wait", action="store_true")
     updater = commands.add_parser("supervisor-update")
-    updater.add_argument("--ref", default="dev")
+    updater.add_argument("--ref", default="latest")
     updater.add_argument("--source-dir", type=Path)
     updater.add_argument("--wait", action="store_true")
     updater.add_argument("--resume", action="store_true")
@@ -270,6 +276,7 @@ def main(argv: list[str] | None = None) -> int:
                         args.target,
                         args.destination,
                         args.passphrase_file,
+                        args.require_mount,
                     ),
                     indent=2,
                 )
@@ -284,6 +291,13 @@ def main(argv: list[str] | None = None) -> int:
                         args.passphrase_file,
                         args.max_bytes,
                     ),
+                    indent=2,
+                )
+            )
+        elif args.command == "journal-prune":
+            print(
+                json.dumps(
+                    retention.prune(config, store, args.keep_days, args.keep_jobs),
                     indent=2,
                 )
             )
