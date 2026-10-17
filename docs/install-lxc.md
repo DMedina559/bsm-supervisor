@@ -133,3 +133,26 @@ bash scripts/install-lxc.sh --source-dir "$PWD" --install-bsm-unit
 
 See [BSM listener and Proxmox environment](listener-environment.md) for LAN binding,
 native environment settings, and updating an existing managed unit.
+
+## BSM installation access
+
+BSM runs as its service account, so installed Python packages need read and directory
+traversal access. The supervisor keeps package environments root-owned and does not
+grant the service account write access. Installation child processes use a code
+umask of `022`, independently of the console's private `0077` umask. Credentials,
+operation logs and BSM data retain their private permissions.
+
+For an environment installed by an older supervisor, inspect the selected Python
+path and test access as the service account:
+
+```sh
+namei -l /opt/bsm/installations/current/bin/python
+runuser -u bsm -- /opt/bsm/installations/current/bin/python -I \
+  -c 'from importlib.metadata import version; print(version("bedrock-server-manager"))'
+```
+
+If package directories or files are inaccessible, repair permissions only within
+the verified installation directory. Do not apply recursive permission changes to
+BSM data, configuration, supervisor state, or an external interpreter target. A
+`noexec` mount or a private ancestor directory requires separate correction. Updated
+supervisors also normalize verified PyPI environments when reusing an installation.
