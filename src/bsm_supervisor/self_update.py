@@ -215,6 +215,11 @@ def _update(
                                     "Public release/ref was not found; "
                                     "select a published tag or dev"
                                 ) from None
+                        if not sys.stdin.isatty():
+                            raise UpdateError(
+                                "Repository access requires a GitHub token; "
+                                "supply GH_TOKEN or the console token field"
+                            ) from None
                         token = getpass.getpass(
                             "GitHub token for private repository access: "
                         )

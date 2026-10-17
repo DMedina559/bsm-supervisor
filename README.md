@@ -102,7 +102,7 @@ CI covers Python 3.11 and 3.14, formatting, lint, type checking, and installer s
 
 ## Console, automation, and external recovery copies
 
-- [Independent web console](docs/web-console.md): service/version management and recovery while BSM is down.
+- [Independent web console](docs/web-console.md): frontend theme and icons, service/version management, encrypted backup transfer, guarded restore, schedules, settings, diagnostics, supervisor updates, and automatic BSM startup after console readiness.
 - [Scheduled maintenance and notifications](docs/scheduling.md): UTC windows, explicit upgrade consent, durable progress, and optional HTTPS completion delivery.
 - [Checkpoint transfer](docs/checkpoint-transfer.md): verified archives, optional encryption, and off-host storage.
 - [Supervisor releases](docs/releases.md): tagged packages, pinned bootstrap assets, and generated release notes.

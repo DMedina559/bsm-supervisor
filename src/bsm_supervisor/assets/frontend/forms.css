@@ -1,0 +1,249 @@
+.form-input,
+.server-dropdown {
+  display: block;
+  width: 100%;
+  min-height: var(--bsm-control-height);
+  padding: var(--bsm-control-padding) calc(12px * var(--bsm-spacing-scale));
+  border: 1px solid var(--form-input-border-color);
+  border-radius: var(--bsm-radius-md);
+  background-color: var(--form-input-background-color);
+  color: var(--form-input-text-color);
+  line-height: 1.45;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.form-input::placeholder {
+  color: var(--text-color-secondary);
+  opacity: 0.8;
+}
+.form-input:focus,
+.server-dropdown:focus {
+  outline: 0;
+  border-color: var(--form-input-focus-border-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bsm-accent) 18%, transparent);
+}
+textarea.form-input {
+  min-height: 110px;
+  resize: vertical;
+}
+select.form-input,
+.server-dropdown {
+  appearance: auto;
+  cursor: pointer;
+}
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--bsm-accent-strong);
+  width: 17px;
+  height: 17px;
+}
+.form-input[type="checkbox"],
+.form-input[type="radio"] {
+  display: inline-block;
+  width: 17px;
+  min-height: 17px;
+  padding: 0;
+}
+.form-input:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.form-input[readonly] {
+  color: var(--text-color-secondary);
+}
+.form-label,
+.select-label {
+  display: block;
+  font-size: calc(12px * var(--bsm-type-scale));
+  line-height: 1.5;
+  color: var(--form-label-text-color);
+  margin-bottom: calc(8px * var(--bsm-spacing-scale));
+  font-weight: 600;
+}
+.form-label-inline {
+  display: inline;
+  margin-left: calc(6px * var(--bsm-spacing-scale));
+  cursor: pointer;
+}
+.form-group {
+  margin-bottom: var(--bsm-form-gap);
+  min-width: 0;
+}
+.form-grid,
+.trigger-fields-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: calc(24px * var(--bsm-spacing-scale));
+  margin-bottom: calc(24px * var(--bsm-spacing-scale));
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(10px * var(--bsm-spacing-scale));
+  margin-top: calc(24px * var(--bsm-spacing-scale));
+  padding-top: calc(20px * var(--bsm-spacing-scale));
+  border-top: 1px solid var(--border-color);
+}
+.form-help-text {
+  display: block;
+  font-size: calc(12px * var(--bsm-type-scale));
+  line-height: 1.6;
+  color: var(--text-color-secondary);
+  margin-top: calc(8px * var(--bsm-spacing-scale));
+}
+.validation-error,
+.form-error {
+  color: var(--validation-error-text-color);
+  display: block;
+  font-size: calc(12px * var(--bsm-type-scale));
+  margin-top: calc(8px * var(--bsm-spacing-scale));
+}
+.form-error {
+  list-style: none;
+  padding: 0;
+}
+.form-input.is-invalid,
+.form-input[aria-invalid="true"] {
+  border-color: var(--form-input-invalid-border-color);
+  background-color: var(--form-input-invalid-background-color);
+}
+.server-selection-section,
+.trigger-group {
+  padding: calc(20px * var(--bsm-spacing-scale));
+  border: 1px solid var(--border-color);
+  border-radius: var(--bsm-radius-md);
+  background: var(--container-background-color);
+  margin-bottom: calc(24px * var(--bsm-spacing-scale));
+}
+.select-server-group,
+.action-buttons-group {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(10px * var(--bsm-spacing-scale));
+}
+.list-section {
+  margin-top: calc(28px * var(--bsm-spacing-scale));
+  padding-top: calc(20px * var(--bsm-spacing-scale));
+  border-top: 1px solid var(--border-color);
+}
+.item-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.item-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: calc(12px * var(--bsm-spacing-scale));
+  padding: calc(12px * var(--bsm-spacing-scale))
+    calc(16px * var(--bsm-spacing-scale));
+  margin-bottom: calc(8px * var(--bsm-spacing-scale));
+  border: 1px solid var(--border-color);
+  border-radius: var(--bsm-radius-md);
+  background: var(--bsm-input);
+}
+.player-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.player-meta {
+  color: var(--text-color-secondary);
+  font-size: calc(12px * var(--bsm-type-scale));
+}
+.login-wrapper {
+  max-width: 460px;
+  margin: calc(48px * var(--bsm-spacing-scale)) auto;
+  padding: calc(32px * var(--bsm-spacing-scale));
+  border: 1px solid var(--border-color);
+  border-radius: var(--bsm-radius-xl);
+  background: var(--container-background-color);
+}
+.login-actions .main-button {
+  width: 100%;
+}
+.trigger-group {
+  position: relative;
+}
+.remove-trigger-btn {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  min-height: 28px;
+  padding: calc(4px * var(--bsm-spacing-scale))
+    calc(8px * var(--bsm-spacing-scale));
+}
+.settings-container {
+  display: flex;
+  flex-direction: column;
+  gap: calc(24px * var(--bsm-spacing-scale));
+}
+.settings-group,
+.settings-panel {
+  padding: calc(24px * var(--bsm-spacing-scale));
+  border: 1px solid var(--border-color);
+  border-radius: var(--bsm-radius-lg);
+  background: var(--container-background-color);
+  margin-bottom: calc(24px * var(--bsm-spacing-scale));
+}
+.settings-group-title {
+  margin: 0 0 calc(20px * var(--bsm-spacing-scale));
+  text-transform: capitalize;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: calc(24px * var(--bsm-spacing-scale));
+}
+.setting-item {
+  min-width: 0;
+}
+.setting-item label {
+  text-transform: capitalize;
+}
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(12px * var(--bsm-spacing-scale));
+  margin-bottom: calc(24px * var(--bsm-spacing-scale));
+}
+.section-heading > svg {
+  color: var(--bsm-accent);
+  flex-shrink: 0;
+  margin-top: calc(2px * var(--bsm-spacing-scale));
+}
+.section-heading h2 {
+  margin: 0 0 calc(8px * var(--bsm-spacing-scale));
+}
+.section-heading p {
+  margin: 0;
+  color: var(--text-color-secondary);
+  font-size: calc(13px * var(--bsm-type-scale));
+}
+@media (max-width: 600px) {
+  .settings-panel,
+  .settings-group {
+    padding: calc(18px * var(--bsm-spacing-scale));
+  }
+  .form-actions > button {
+    flex: 1;
+  }
+  form[style*="display: flex"] {
+    flex-wrap: wrap;
+  }
+}
+
+.settings-grid > .settings-group {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+.settings-group-description {
+  color: var(--text-color-secondary);
+  font-size: calc(13px * var(--bsm-type-scale));
+  margin: calc(-10px * var(--bsm-spacing-scale)) 0
+    calc(18px * var(--bsm-spacing-scale));
+}

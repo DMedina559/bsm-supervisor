@@ -1,0 +1,35 @@
+{
+  "repository": "https://github.com/DMedina559/bsm-frontend",
+  "revision": "963289899210eb96f5f1c174defc8109cd1fa730",
+  "license": "MIT",
+  "files": {
+    "tokens.css": {
+      "source": "frontend/src/styles/tokens.css",
+      "sha256": "a40465358330d54d29075c72cb938825d36335ab10933387dfa5a4c29a1dba32"
+    },
+    "base.css": {
+      "source": "frontend/src/styles/base.css",
+      "sha256": "6369603815a4f508e2c7f0fb0f327fd358f97c9c77279c21e4225637c5f4f88e"
+    },
+    "buttons.css": {
+      "source": "frontend/src/styles/buttons.css",
+      "sha256": "23678095f1259701394e6aac97efd72c54a9a72a8e9ecc2394519a319b44af64"
+    },
+    "forms.css": {
+      "source": "frontend/src/styles/forms.css",
+      "sha256": "e9505342ca8a9545b960359206d964640d06e00d7ba19dc8b7812e559a51b410"
+    },
+    "icon-192.png": {
+      "source": "frontend/public/image/icon/web-app-manifest-192x192.png",
+      "sha256": "a271bbfb43fbb46555ae7e7391e2216ba440c120382b35652a2521e9b057a117"
+    },
+    "favicon-96.png": {
+      "source": "frontend/public/image/icon/favicon-96x96.png",
+      "sha256": "ea4f13e80f1b6a42537216bd0a7f2d1d0d7500bc81c063393e7b8a52828c0a33"
+    },
+    "LICENSE": {
+      "source": "LICENSE",
+      "sha256": "4f0cd25ba6be4d41029d261269fa1ed7e4aa5c5adc8c386045a35e2a90469e65"
+    }
+  }
+}

@@ -10,8 +10,10 @@ import zipfile
 from pathlib import Path
 
 from . import (
+    autostart,
     checkpoints,
     cleanup,
+    console_admin,
     diagnostics,
     events,
     operations,
@@ -45,6 +47,7 @@ def parser() -> argparse.ArgumentParser:
     )
     commands = root.add_subparsers(dest="command", required=True)
     for name in (
+        "auto-start",
         "check",
         "integration",
         "checkpoints",
@@ -79,6 +82,8 @@ def parser() -> argparse.ArgumentParser:
                 "--max-bytes", type=int, default=transfer.DEFAULT_LIMIT
             )
         command.add_argument("--passphrase-file", type=Path)
+    task = commands.add_parser("console-task")
+    task.add_argument("id")
     progress = commands.add_parser("events")
     progress.add_argument("--after", type=int, default=0)
     progress.add_argument("--follow", action="store_true")
@@ -267,7 +272,16 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(SystemdService(config).status(), indent=2))
             return 0
         store = Store(config.state_dir)
-        if args.command == "checkpoint-export":
+        if args.command == "console-task":
+            print(
+                json.dumps(
+                    console_admin.execute_request(config, args.config, store, args.id),
+                    indent=2,
+                )
+            )
+        elif args.command == "auto-start":
+            print(json.dumps(autostart.start(config, store), indent=2))
+        elif args.command == "checkpoint-export":
             print(
                 json.dumps(
                     transfer.export_checkpoint(

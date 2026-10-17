@@ -5,6 +5,8 @@ service_unit = "bedrock-server-manager-webui.service"
 service_timeout = 240
 # Maximum runtime of a console child command, in seconds (1–86400).
 web_job_timeout = 3600
+# Attempt BSM startup once after the console listener is ready.
+web_auto_start = true
 # LXC default: reachable on all IPv4 interfaces. Use 127.0.0.1 for a local proxy.
 bsm_host = "0.0.0.0"
 bsm_port = 11325
@@ -25,3 +27,6 @@ checkpoint_paths = []
 # Store a BSM bearer token in this private regular file (permissions 0600).
 # api_token_file = "/var/lib/bsm-supervisor/bsm-api.token"
 readiness_timeout = 60
+
+# Maximum browser archive upload and extracted import payload (bytes).
+web_transfer_limit = 10737418240
