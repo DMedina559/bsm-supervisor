@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools>=77", "setuptools-scm>=8,<10"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -17,8 +17,8 @@ bsm-supervisor = "bsm_supervisor.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.dynamic]
-version = {attr = "bsm_supervisor.__version__"}
+[tool.setuptools_scm]
+local_scheme = "no-local-version"
 
 [tool.setuptools.package-data]
 bsm_supervisor = ["assets/*.html", "assets/*.js", "assets/*.css", "assets/frontend/*"]
@@ -28,6 +28,7 @@ web = ["uvicorn>=0.32,<1"]
 transfer = ["cryptography>=43,<52"]
 all = ["uvicorn>=0.32,<1", "cryptography>=43,<52"]
 dev = [
+    "setuptools-scm>=8,<10",
     "black>=26.10,<27",
     "flake8>=7.4,<8",
     "isort>=9,<10",

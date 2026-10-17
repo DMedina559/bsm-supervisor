@@ -174,17 +174,23 @@ if [[ -n $package_version ]]; then
     cp -R -- "$source_dir/src" "$source_dir/pyproject.toml" "$source_dir/README.md" "$source_dir/LICENSE" "$package_dir/"
     "$version_dir/bin/python" -I -m pip --isolated install --index-url https://pypi.org/simple 'packaging>=24,<27'
     "$version_dir/bin/python" -I - "$package_dir" "$package_version" <<'PYVERSION'
-import pathlib, re, sys
+import pathlib, re, sys, tomllib
 from packaging.version import Version
 version = str(Version(sys.argv[2]))
 if version != sys.argv[2]:
     raise SystemExit('Package version must be normalized')
-path = pathlib.Path(sys.argv[1]) / 'src/bsm_supervisor/__init__.py'
+root = pathlib.Path(sys.argv[1])
+project = root / 'pyproject.toml'
+if project.exists() and 'setuptools_scm' in tomllib.loads(project.read_text()).get('tool', {}):
+    raise SystemExit(0)
+# Older release archives used a static module attribute.
+path = root / 'src/bsm_supervisor/__init__.py'
 content, count = re.subn(r'^__version__ = "[^\"]+"$', f'__version__ = "{version}"', path.read_text(), count=1, flags=re.MULTILINE)
 if count != 1:
     raise SystemExit('Missing package version declaration')
 path.write_text(content)
 PYVERSION
+    export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_BSM_SUPERVISOR="$package_version"
 fi
 "$version_dir/bin/python" -I -m pip --isolated install --index-url https://pypi.org/simple "${package_dir}[all]"
 "$version_dir/bin/python" -I -m pip check

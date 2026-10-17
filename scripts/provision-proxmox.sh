@@ -409,10 +409,16 @@ if not match and not (source / '.git').exists() and (source / 'supervisor-source
     record = {key: supplied.get(key) for key in ('source', 'ref', 'revision', 'dirty')}
 output.write_text(json.dumps(record))
 PYPROVENANCE
+# Keep version metadata when the bootstrap deliberately omits the Git directory.
+version_inputs=()
+if [[ -f $source_dir/scripts/archive-version.py ]]; then
+    python3 "$source_dir/scripts/archive-version.py" "$source_dir" "$work/.git_archival.txt"
+    version_inputs=(.git_archival.txt)
+fi
 # Copy only installation inputs; credentials, venvs, Git metadata and local data stay on host.
 tar --create --gzip --file "$work/bootstrap.tar.gz" --directory "$source_dir" \
     pyproject.toml README.md LICENSE config.example.toml src scripts \
-    --directory "$work" supervisor-source.json
+    --directory "$work" supervisor-source.json "${version_inputs[@]}"
 echo "[1/4] Preparing LXC template"
 if [[ -n ${template_name:-} ]]; then pveam download "$template_storage" "$template_name"; fi
 echo "[2/4] Creating unprivileged LXC $ctid"
