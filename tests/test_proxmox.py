@@ -45,6 +45,9 @@ elif name == 'pveam':
             print('system debian-13-standard_13.1-1_amd64.tar.zst')
 else:
     if name == 'pct':
+        if os.environ.get('CAPTURE_UMASK'):
+            print(format(os.umask(0), '03o'))
+            raise SystemExit(0)
         raise SystemExit('pct mutation must not run during dry-run')
 """
         for name in ("pct", "pvesh", "pvesm", "pveam", "pveversion", "ip"):
@@ -71,6 +74,23 @@ else:
 
     def commands(self):
         return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def test_pct_uses_normal_guest_permissions_without_changing_host_mask(self):
+        program = self.script.read_text().split("pct() {\n", 1)[1].split("\n}\n", 1)[0]
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                "umask 077; pct() {\n" + program + "\n}; pct create 901; umask",
+            ],
+            env={**self.environment, "CAPTURE_UMASK": "1"},
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        masks = result.stdout.splitlines()
+        self.assertEqual(int(masks[0], 8), 0o022)
+        self.assertEqual(int(masks[1], 8), 0o077)
 
     def test_defaults_select_latest_template_and_never_mutate(self):
         result = self.run_plan()

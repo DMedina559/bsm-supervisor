@@ -118,3 +118,33 @@ The command plans, validation, wizard, and archive checks are tested with a fake
 Proxmox command interface. A real Proxmox host/LXC run remains necessary for field
 validation. The implementation follows the official
 [`pct` documentation](https://pve.proxmox.com/pve-docs/pct.1.html).
+
+## Root DNS works but APT cannot resolve
+
+Older provisioner revisions applied the host's private `umask 077` to `pct`.
+Proxmox template extraction can inherit that mask and leave `/etc` inaccessible
+to the `_apt` download account. Current revisions run every `pct` command with
+`umask 022` inside a subshell while retaining private host credential permissions.
+The LXC installer also checks resolver-file access as `_apt`, stops on any APT
+index-update error, and skips unnecessary recommended distribution packages.
+
+For an affected fresh container, inspect permissions and test the download user
+from the host (replace 101 with the actual ID):
+
+```sh
+pct exec 101 -- stat -c '%a %U:%G %n' / /etc /etc/resolv.conf /etc/nsswitch.conf /etc/hosts
+pct exec 101 -- runuser -u _apt -- getent ahostsv4 deb.debian.org
+```
+
+If `/etc` or those public resolver files have restrictive permissions, restore
+normal access to those specific paths, without recursive permission changes:
+
+```sh
+pct exec 101 -- chmod 755 /etc
+pct exec 101 -- chmod 644 /etc/resolv.conf /etc/nsswitch.conf /etc/hosts
+pct exec 101 -- runuser -u _apt -- getent ahostsv4 deb.debian.org
+```
+
+Once that succeeds, retry the retained bootstrap as described above. For a fresh
+container whose BSM unit has not been created yet, include `--install-bsm-unit`.
+A root-only successful lookup does not establish that APT can resolve names.

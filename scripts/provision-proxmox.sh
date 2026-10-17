@@ -69,6 +69,12 @@ done
 for command in pct pvesh pvesm pveversion python3 ip tar flock; do
     command -v "$command" >/dev/null || fail "Missing Proxmox host prerequisite: $command"
 done
+# Proxmox inherits the caller's umask during template extraction and guest setup.
+# Keep host credentials private without applying that mask to guest system files.
+pct() {
+    (umask 022; command pct "$@")
+}
+
 # Self-contained community-script style wizard; no remote helper code is sourced.
 ask() {
     local variable=$1 title=$2 fallback=$3 answer

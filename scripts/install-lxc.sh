@@ -33,8 +33,17 @@ if $install_unit && systemctl cat bedrock-server-manager-webui.service >/dev/nul
     exit 1
 fi
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y python3 python3-venv python3-pip git curl ca-certificates util-linux
+# Root can resolve successfully even when APT's sandbox cannot read resolver files.
+if id _apt >/dev/null 2>&1; then
+    for resolver_file in /etc/resolv.conf /etc/nsswitch.conf; do
+        runuser -u _apt -- test -r "$resolver_file" || {
+            echo "APT user cannot read $resolver_file. Check /etc traversal and resolver file permissions." >&2
+            exit 1
+        }
+    done
+fi
+apt-get -o APT::Update::Error-Mode=any update
+apt-get install -y --no-install-recommends python3 python3-venv python3-pip git curl ca-certificates util-linux
 python3 -c 'import sys; assert sys.version_info >= (3, 11), "Python 3.11+ required (Debian 12+/Ubuntu 24.04+)"'
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
