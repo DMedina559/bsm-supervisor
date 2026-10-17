@@ -57,7 +57,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ needs.source.outputs.sha }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.14'
       - run: python -m pip install build packaging
