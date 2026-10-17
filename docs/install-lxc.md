@@ -73,29 +73,28 @@ The installer neither enables nor starts BSM. The supervisor provides a local CL
 
 ## First BSM startup
 
-For a fresh container, choose a release channel and inspect its installation ID.
-Use `prerelease` instead of `stable` if you want a preview release:
+For a fresh container, run guided setup:
 
 ```sh
-bsm-supervisor install stable
-bsm-supervisor installations
-bsm-supervisor activate INSTALLATION_ID --offline-confirmed
-bsm-supervisor start
+bsm-supervisor setup --offline-confirmed
 ```
 
-Repeating `install` reuses a registered release after checking its metadata and
-dependencies; it does not overwrite an existing environment or change selection.
-An unregistered directory is retained for inspection.
+Interactive setup offers registered installations and release channels. Without
+a terminal or an existing installation, it prepares the prerelease channel.
+Specify a compatible exact version/channel or `--installation INSTALLATION_ID`
+to choose explicitly. The command installs a missing managed unit, selects the
+environment, starts BSM, and prints listener URLs. Reruns preserve an existing
+selection. See [administration](administration.md) for the full behavior.
 
-Replace `INSTALLATION_ID` with the ID printed by `installations`. No user bearer
-token is needed for initial startup. Finish BSM's first-user setup in the browser.
+Complete BSM's first-user setup in the browser. No user token is needed for
+initial startup. BSM versions with local health authentication require no extra
+credential setup; older versions need a user token for health checks and
+coordinated upgrades. See [readiness authentication](upgrades.md#configure-readiness-and-startup-control).
 
-BSM versions with local runtime readiness support need no additional supervisor
-credential setup. Older versions require a BSM user bearer token saved in a
-root-owned regular file with mode 0600; set `api_token_file` to that path.
-See [readiness authentication](upgrades.md#configure-readiness-and-startup-control)
-for compatibility and the backend feature's release status. BSM 4.0 is required
-for coordinated upgrades and runtime shutdown.
+Low-level commands remain available when adopting an existing installation:
+`install`, `installations`, `activate ID --offline-confirmed`, and `start`.
+Repeating `install` reuses a verified registered release without changing the
+selection. Setup refuses to guess a version for existing unselected BSM data.
 
 ## Git upgrades
 

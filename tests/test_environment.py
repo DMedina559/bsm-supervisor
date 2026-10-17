@@ -224,7 +224,7 @@ class BindTests(unittest.TestCase):
             patch("bsm_supervisor.config.overrides", return_value={}),
             patch("bsm_supervisor.cli.SystemdService.status", return_value={}),
             patch(
-                "bsm_supervisor.cli.require_managed",
+                "bsm_supervisor.operations.require_managed",
                 side_effect=ValueError("environment drift"),
             ),
             patch("bsm_supervisor.cli.SystemdService.control") as control,

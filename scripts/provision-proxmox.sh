@@ -323,9 +323,23 @@ PY
 fi
 unset GH_TOKEN
 [[ -f $source_dir/scripts/install-lxc.sh && -d $source_dir/src/bsm_supervisor ]] || fail 'Invalid supervisor source checkout.'
+# Preserve source provenance when the filtered bootstrap has no Git metadata.
+python3 - "$source_dir" "$work/supervisor-source.json" "$ref" <<'PYPROVENANCE'
+import json, pathlib, re, shutil, subprocess, sys
+source, output, requested = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+match = re.search(r'-([0-9a-f]{40})$', source.name)
+revision, dirty = match.group(1) if match else None, None
+if not match and (source / '.git').exists() and shutil.which('git'):
+    result = subprocess.run(['git', '-C', str(source), 'rev-parse', 'HEAD'], capture_output=True, text=True)
+    if result.returncode == 0 and re.fullmatch(r'[0-9a-f]{40}', result.stdout.strip()):
+        revision = result.stdout.strip()
+        dirty = bool(subprocess.run(['git', '-C', str(source), 'status', '--porcelain'], capture_output=True, text=True).stdout)
+output.write_text(json.dumps({'source': 'github' if match else 'local', 'ref': requested, 'revision': revision, 'dirty': dirty}))
+PYPROVENANCE
 # Copy only installation inputs; credentials, venvs, Git metadata and local data stay on host.
 tar --create --gzip --file "$work/bootstrap.tar.gz" --directory "$source_dir" \
-    pyproject.toml README.md LICENSE config.example.toml src scripts
+    pyproject.toml README.md LICENSE config.example.toml src scripts \
+    --directory "$work" supervisor-source.json
 echo "[1/4] Preparing LXC template"
 if [[ -n ${template_name:-} ]]; then pveam download "$template_storage" "$template_name"; fi
 echo "[2/4] Creating unprivileged LXC $ctid"
@@ -358,4 +372,5 @@ pct exec "$ctid" -- bash /root/bsm-supervisor-bootstrap/scripts/install-lxc.sh \
 pct exec "$ctid" -- rm -rf /root/bsm-supervisor-bootstrap
 printf '\nLXC %s is ready. Enter it with: pct enter %s\n' "$ctid" "$ctid"
 echo 'Supervisor is installed; BSM has not been installed or started.'
-echo 'Continue with docs/install-lxc.md for BSM selection, first startup, and readiness token setup.'
+echo 'Inside the container, run: bsm-supervisor setup --offline-confirmed'
+echo 'See docs/install-lxc.md for version selection and BSM user setup.'

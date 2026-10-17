@@ -25,6 +25,6 @@ jobs:
       - run: python -m mypy src
       - run: python -m unittest discover -s tests -v
       - run: bsm-supervisor --help
-      - run: bash -n scripts/install-lxc.sh && bash -n scripts/provision-proxmox.sh
+      - run: for script in scripts/*.sh; do bash -n "$script"; done
       - run: python -m pip install shellcheck-py
       - run: shellcheck scripts/*.sh

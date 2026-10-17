@@ -106,3 +106,63 @@ class BootstrapLauncherTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(destination.read_text(), "existing command")
+
+
+class BootstrapProvenanceTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name)
+        installer = Path(__file__).resolve().parents[1] / "scripts/install-lxc.sh"
+        self.program = (
+            installer.read_text()
+            .split("<<'PYREVISION'\n", 1)[1]
+            .split("\nPYREVISION\n", 1)[0]
+        )
+        self.target = self.base / "environment"
+        self.target.mkdir()
+
+    def record(self, source):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-c",
+                self.program,
+                str(source),
+                str(self.target),
+                "dev",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        import json
+
+        return json.loads((self.target / "supervisor-installation.json").read_text())
+
+    def test_remote_archive_records_exact_revision(self):
+        source = self.base / ("repo-" + "a" * 40)
+        source.mkdir()
+        record = self.record(source)
+        self.assertEqual(record["revision"], "a" * 40)
+        self.assertEqual(record["source"], "github")
+
+    def test_filtered_bootstrap_preserves_host_provenance(self):
+        import json
+
+        source = self.base / "filtered"
+        source.mkdir()
+        expected = {
+            "source": "github",
+            "revision": "b" * 40,
+            "ref": "dev",
+            "dirty": None,
+        }
+        (source / "supervisor-source.json").write_text(json.dumps(expected))
+        self.assertEqual(self.record(source), expected)
+
+    def test_plain_source_copy_reports_unknown_revision(self):
+        source = self.base / "local"
+        source.mkdir()
+        self.assertIsNone(self.record(source)["revision"])

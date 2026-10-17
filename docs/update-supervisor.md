@@ -3,11 +3,49 @@
 Run the following **inside the existing container as root**. If starting from the
 Proxmox host, use `pct enter` followed by the container ID first.
 
-The latest installer creates a new permanent supervisor environment, checks the
-package/configuration, and switches the command launcher. It preserves existing
-configuration, the BSM environment selection, data, and the current service unit.
-Omit `--install-bsm-unit` because the unit already exists. Download fresh source;
-a retained bootstrap checkout may contain an earlier revision.
+## Update from the CLI
+
+On versions that provide the update command, run:
+
+```sh
+bsm-supervisor supervisor-update --maintenance-confirmed
+bsm-supervisor version
+bsm-supervisor doctor
+```
+
+The command resolves `dev` to an exact commit, downloads the installer from that
+same revision, and stages a permanent supervisor environment while BSM remains
+available. It then gracefully stops a running BSM, refreshes the managed unit and
+private environment with the new interpreter, and restarts BSM only if it was
+running before the update. The BSM package and selected installation are preserved.
+
+Use `--ref FULL_COMMIT_SHA` to choose a fixed revision and `--wait` to require
+application readiness after restart. A private-repository token is read from
+`GH_TOKEN` or a hidden terminal prompt and is never passed as a command argument
+or written to the update plan. It needs repository **Contents: read-only** access.
+For a local checkout, use `--source-dir /absolute/path/to/bsm-supervisor`.
+
+Progress is saved privately in `state_dir/supervisor-update.json`. If an update is
+interrupted, inspect `history`, `doctor`, and service state, resolve any uncertain
+service operation explicitly, then run:
+
+```sh
+bsm-supervisor supervisor-update --resume --maintenance-confirmed
+```
+
+Resume retains the recorded revision and original running/stopped intent. It
+retries installation if staging did not finish, or uses the installed environment
+when only refresh/start remains. No data restoration or recovery acknowledgement
+is automatic. Earlier environments remain available because old units may still
+reference their launch guards. A failed post-install refresh can leave the CLI
+updated while the previous unit remains installed; use diagnostics before resume.
+
+## Bootstrap or update an older supervisor
+
+If `supervisor-update` is unavailable, use the standalone installer below. It
+creates a permanent environment and preserves configuration, BSM selection, data,
+and the current service unit. Omit `--install-bsm-unit` for an existing unit.
+Download fresh source rather than rerunning a stale bootstrap checkout.
 
 ```bash
 REVISION=dev # Or a full commit SHA for a fixed revision.

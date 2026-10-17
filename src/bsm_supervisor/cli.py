@@ -3,19 +3,29 @@
 import argparse
 import json
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
-from . import checkpoints, cleanup, restoration, runtime, upgrades
+from . import (
+    checkpoints,
+    cleanup,
+    diagnostics,
+    operations,
+    restoration,
+    runtime,
+    self_update,
+    upgrades,
+)
 from .activation import activate, selection, service_unit
 from .config import Config
 from .git_sources import install_git
 from .install import install
 from .integration import inspect as inspect_integration
-from .integration import require_managed
 from .releases import ReleaseError, discover, select
 from .service import ServiceError, SystemdService
 from .service_environment import write_environment
+from .setup import setup as setup_installation
 from .store import BusyError, Store
 from .unit_refresh import refresh
 
@@ -39,11 +49,32 @@ def parser() -> argparse.ArgumentParser:
         "selection",
         "history",
         "status",
-        "start",
         "stop",
-        "restart",
     ):
         commands.add_parser(name)
+    for name in ("start", "restart"):
+        command = commands.add_parser(name)
+        command.add_argument(
+            "--wait",
+            action="store_true",
+            help="Wait for authenticated application readiness",
+        )
+    commands.add_parser("version")
+    doctor = commands.add_parser("doctor")
+    doctor.add_argument("--no-health", action="store_true")
+    setup = commands.add_parser("setup")
+    setup.add_argument("selector", nargs="?")
+    setup.add_argument("--installation")
+    setup.add_argument("--user", default="bsm")
+    setup.add_argument("--offline-confirmed", action="store_true")
+    setup.add_argument("--no-start", action="store_true")
+    setup.add_argument("--wait", action="store_true")
+    updater = commands.add_parser("supervisor-update")
+    updater.add_argument("--ref", default="dev")
+    updater.add_argument("--source-dir", type=Path)
+    updater.add_argument("--wait", action="store_true")
+    updater.add_argument("--resume", action="store_true")
+    updater.add_argument("--maintenance-confirmed", action="store_true", required=True)
     environment = commands.add_parser("service-environment")
     environment.add_argument("--offline-confirmed", action="store_true", required=True)
     refresh_unit = commands.add_parser("unit-refresh")
@@ -128,7 +159,14 @@ def main(argv: list[str] | None = None) -> int:
     """Execute an operator command and return a process exit code."""
     args = parser().parse_args(argv)
     try:
+        if args.command == "version":
+            print(json.dumps(self_update.information(), indent=2))
+            return 0
         config = Config.load(args.config)
+        if args.command == "doctor":
+            report = diagnostics.doctor(config, not args.no_health)
+            print(json.dumps(report, indent=2))
+            return 0 if report["ok"] else 1
         if args.command == "check":
             print("Configuration valid")
             return 0
@@ -149,7 +187,35 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(SystemdService(config).status(), indent=2))
             return 0
         store = Store(config.state_dir)
-        if args.command == "service-environment":
+        if args.command == "setup":
+            offline = args.offline_confirmed
+            result = setup_installation(
+                config,
+                store,
+                args.selector,
+                args.installation,
+                args.user,
+                offline,
+                not args.no_start,
+                args.wait,
+            )
+            print(json.dumps(result, indent=2))
+        elif args.command == "supervisor-update":
+            print(
+                json.dumps(
+                    self_update.update(
+                        config,
+                        args.config,
+                        store,
+                        args.ref,
+                        args.source_dir,
+                        args.wait,
+                        args.resume,
+                    ),
+                    indent=2,
+                )
+            )
+        elif args.command == "service-environment":
             with store.mutation("service:environment"):
                 try:
                     state = SystemdService(config).status()
@@ -283,28 +349,15 @@ def main(argv: list[str] | None = None) -> int:
             store.acknowledge(args.operation_id)
             print("Interruption acknowledged; no rollback performed")
         else:
-            with store.lock():
-                service = SystemdService(config)
-                if args.command in ("start", "restart"):
-                    if selection(config, store) is None:
-                        raise ValueError(
-                            "No BSM installation selected. Run installations, then "
-                            "activate INSTALLATION_ID --offline-confirmed while stopped"
-                        )
-                    require_managed(config, service.status())
-                with store.mutation("service:" + args.command, preserve_on_error=True):
-                    service.control(args.command)
-                    if args.command in ("start", "restart"):
-                        state = service.status()
-                        if state.get("ActiveState") != "active" or state.get(
-                            "MainPID"
-                        ) in (None, "", "0"):
-                            raise ServiceError(
-                                "BSM did not remain running; inspect status and "
-                                f"journalctl -u {config.service_unit}"
-                            )
+            wait = getattr(args, "wait", False)
+            operations.control(config, store, args.command, wait)
             if args.command in ("start", "restart"):
-                print("BSM process running; use health to verify application readiness")
+                print(
+                    "BSM application ready"
+                    if wait
+                    else "BSM process running; use health to verify "
+                    "application readiness"
+                )
             else:
                 print(f"Service {args.command} completed")
         return 0
@@ -322,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
         BusyError,
         ReleaseError,
         runtime.RuntimeErrorBase,
+        subprocess.SubprocessError,
     ) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

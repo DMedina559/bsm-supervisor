@@ -104,7 +104,7 @@ A host lock prevents simultaneous runs of this provisioner from creating guests.
 After completion, enter the new container with `pct enter ID`. The supervisor,
 its configuration/journal, and the managed BSM unit are installed. BSM itself is
 not installed, enabled, or started: finish the version selection, BSM account
-setup, and readiness-token configuration in [LXC installation](install-lxc.md).
+setup in [LXC installation](install-lxc.md). Run `bsm-supervisor setup --offline-confirmed` inside the new container.
 
 If creation/start/bootstrap fails, the script reports the ID and retains the
 container for inspection. It never automatically destroys a container or disk.

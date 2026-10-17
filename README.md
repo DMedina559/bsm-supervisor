@@ -12,6 +12,8 @@ Choose the guide for your installation:
 | --- | --- |
 | Create a new container from the Proxmox host | [Proxmox host setup](docs/proxmox-host.md) |
 | Install inside an existing container | [LXC installation](docs/install-lxc.md) |
+| Guided setup, diagnostics, and readiness checks | [Administration](docs/administration.md) |
+| Validate a disposable container lifecycle | [Proxmox validation](docs/validation.md) |
 | Update the supervisor itself | [Supervisor updates](docs/update-supervisor.md) |
 | Configure BSM networking, paths, database, and logging | [Environment and listener settings](docs/listener-environment.md) |
 | Upgrade BSM with a recovery checkpoint | [Coordinated upgrades](docs/upgrades.md) |
@@ -45,14 +47,17 @@ bsm-supervisor install prerelease
 
 Each release has its own Python environment. Installation verifies dependencies and package metadata without importing BSM or migrating its data. Git sources require explicit permission to execute upstream build code. Failed installation directories and command logs are retained for inspection.
 
-For a new installation with no existing BSM data, select the ID printed by `installations`:
+For a new installation, guided setup prepares a compatible BSM release, installs
+the managed unit, selects the environment, and starts BSM:
 
 ```sh
-bsm-supervisor activate INSTALLATION_ID --offline-confirmed
-bsm-supervisor start
+bsm-supervisor setup --offline-confirmed
+bsm-supervisor doctor
 ```
 
-Activation requires a stopped, current managed unit and its private environment file. It selects an environment without starting BSM or restoring data. Use the [upgrade workflow](docs/upgrades.md) when changing versions against existing data.
+See [administration](docs/administration.md) for interactive choices, existing
+installation handling, `start --wait`, and diagnostics. Use the
+[upgrade workflow](docs/upgrades.md) when changing versions against existing data.
 
 ```sh
 bsm-supervisor health
