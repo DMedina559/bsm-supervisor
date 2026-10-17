@@ -36,3 +36,19 @@ Releases are experimental. Release notes identify this status, and the console
 and README display it. Source installers, wheels and source distributions include
 the license; installed console assets are checked during packaging. No tag or
 public release is created by ordinary branch updates.
+
+
+## Retry publication or attach assets to an existing release
+
+In GitHub Actions, open **Release**, choose **Run workflow** on `main`, and enter
+the existing tag, such as `v0.1.0b1`. This rebuilds and validates the tag's exact
+commit using the current workflow. It leaves the tag unchanged.
+
+If the release already exists, the workflow uploads the generated assets and
+replaces same-named assets. Its title, description, draft status and prerelease
+setting are preserved. Missing releases are created with generated notes and the
+experimental notice. Publication stops if the tag moves during the build.
+
+Rerunning an older failed workflow uses its original workflow definition. Use
+**Run workflow** from the updated `main` branch when repairing a failure in the
+publication workflow itself.

@@ -1,6 +1,12 @@
 name: Console browser tests
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: Exact source commit to validate
+        required: false
+        default: ''
+        type: string
   push:
   pull_request:
 permissions:
@@ -14,6 +20,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
