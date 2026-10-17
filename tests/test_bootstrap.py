@@ -22,10 +22,7 @@ class BootstrapArchiveTests(unittest.TestCase):
         # remain standalone before the supervisor package has been installed.
         installer = Path(__file__).resolve().parents[1] / "scripts/install-lxc.sh"
         self.program = (
-            (
-                installer.read_text()
-                + (installer.parent / "lib/install-systemd.sh").read_text()
-            )
+            installer.read_text()
             .split("<<'PYSOURCE'\n", 1)[1]
             .split("\nPYSOURCE\n", 1)[0]
         )
@@ -91,10 +88,7 @@ class BootstrapLauncherTests(unittest.TestCase):
     def test_launcher_supports_repeat_install_and_preserves_unrelated_commands(self):
         installer = Path(__file__).resolve().parents[1] / "scripts/install-lxc.sh"
         function = (
-            (
-                installer.read_text()
-                + (installer.parent / "lib/install-systemd.sh").read_text()
-            )
+            installer.read_text()
             .split("publish_launcher() {\n", 1)[1]
             .split("\n}\n", 1)[0]
         )
@@ -134,10 +128,7 @@ class BootstrapProvenanceTests(unittest.TestCase):
         self.base = Path(self.temp.name)
         installer = Path(__file__).resolve().parents[1] / "scripts/install-lxc.sh"
         self.program = (
-            (
-                installer.read_text()
-                + (installer.parent / "lib/install-systemd.sh").read_text()
-            )
+            installer.read_text()
             .split("<<'PYREVISION'\n", 1)[1]
             .split("\nPYREVISION\n", 1)[0]
         )
@@ -215,8 +206,8 @@ raise SystemExit(0 if status=='200' else 22)
                 source = (
                     Path(__file__).resolve().parents[1] / "scripts" / name
                 ).read_text()
-                function = source.split("github_download() {\n", 1)[1].split(
-                    "\n}\n", 1
+                function = source.split("    github_download() {\n", 1)[1].split(
+                    "\n    }\n", 1
                 )[0]
                 url = (
                     "https://api.github.com/repos/DMedina559/bsm-supervisor/tarball/ref"
