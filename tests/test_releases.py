@@ -18,7 +18,7 @@ from bsm_supervisor.releases import (
 )
 from bsm_supervisor.service import guard_command, managed_command
 from bsm_supervisor.service_environment import write_environment
-from bsm_supervisor.store import BusyError, Store
+from bsm_supervisor.store import Store
 
 
 class ReleaseTests(unittest.TestCase):
@@ -107,8 +107,11 @@ class InstallationTests(unittest.TestCase):
         self.assertEqual(
             pip_command[pip_command.index("--index-url") + 1], "https://pypi.org/simple"
         )
-        with self.assertRaises(FileExistsError):
-            install(self.config, self.store, Release("4.0.0b7"))
+        run.reset_mock()
+        run.side_effect = None
+        result = install(self.config, self.store, Release("4.0.0b7"))
+        self.assertTrue(result["reused"])
+        self.assertEqual(run.call_count, 2)
         self.assertEqual(len(self.store.installations()), 1)
 
     @patch("bsm_supervisor.install.run_command")
@@ -193,9 +196,9 @@ class InstallationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 activate(self.config, self.store, "release")
             self.assertFalse((self.config.installations_dir / "current").exists())
-            with self.assertRaises(BusyError):
-                self.store.begin("next")
-            self.store.acknowledge(self.store.operations()[0]["id"])
+            self.assertFalse(
+                any(item["state"] == "running" for item in self.store.operations())
+            )
 
     def test_render_unit_with_bounded_restart_and_explicit_paths(self):
         unit = service_unit(self.config, "bsm")

@@ -156,5 +156,11 @@ if $install_unit; then
     systemctl daemon-reload
 fi
 printf '\nSupervisor installed. Configuration: %s\n' "$config"
-echo 'BSM has not been started. Install/select a BSM version, configure its bearer token,'
-echo 'and review the generated unit before starting BSM. See docs/install-lxc.md.'
+if $install_unit; then
+    echo 'Next: install a BSM release, activate its installation ID, then start BSM.'
+    echo 'Complete BSM user setup in the browser. A bearer token is only needed for health/upgrades.'
+else
+    echo 'Existing BSM selection and service state were preserved.'
+    echo 'When BSM is stopped, run: bsm-supervisor unit-refresh --offline-confirmed'
+fi
+echo 'See docs/install-lxc.md and docs/update-supervisor.md.'

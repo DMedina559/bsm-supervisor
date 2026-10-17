@@ -114,19 +114,12 @@ After applying the settings, run inside the container:
 
 ```sh
 bsm-supervisor check
-bsm-supervisor service-environment --offline-confirmed
-bsm-supervisor unit --user bsm > /tmp/bedrock-server-manager-webui.service
-systemd-analyze verify --man=no /tmp/bedrock-server-manager-webui.service
-```
-
-After verification succeeds:
-
-```sh
-install -m 0644 /tmp/bedrock-server-manager-webui.service /etc/systemd/system/bedrock-server-manager-webui.service
-systemctl daemon-reload
+bsm-supervisor unit-refresh --offline-confirmed
 bsm-supervisor start
 bsm-supervisor status
 ```
+
+Run each command only after the previous command succeeds.
 
 Adapt the service account/unit name if configured differently. `service-environment`
 refuses a running service and never prints the private values. Fresh installations

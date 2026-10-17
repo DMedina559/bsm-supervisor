@@ -83,7 +83,12 @@ bsm-supervisor activate INSTALLATION_ID --offline-confirmed
 bsm-supervisor start
 ```
 
-Replace `INSTALLATION_ID` with the ID printed by `installations`. Finish BSM's own
+Repeating `install` reuses a registered release after checking its metadata and
+dependencies; it does not overwrite an existing environment or change selection.
+An unregistered directory is retained for inspection.
+
+Replace `INSTALLATION_ID` with the ID printed by `installations`. No user bearer
+token is needed for this initial startup. Finish BSM's own
 initial account/setup flow, then create a BSM bearer token for authenticated
 readiness. Save it as a root-owned regular file with mode 0600, and set
 `api_token_file` in supervisor configuration. The installer cannot create an

@@ -56,6 +56,10 @@ class SystemdService:
             raise ServiceError(f"Service is not installed: {self.unit}")
         return values
 
+    def reload_units(self) -> None:
+        """Reload systemd unit definitions without starting BSM."""
+        self._run(["daemon-reload"])
+
     def reset_failed(self) -> None:
         """Clear a stopped failure state before another managed start."""
         state = self.status()

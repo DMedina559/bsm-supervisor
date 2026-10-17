@@ -42,23 +42,27 @@ The commands below use the default unit name and `bsm` service account. If BSM i
 already stopped, skip `graceful-stop`. If graceful shutdown fails, inspect the
 service journal and resolve the failure before continuing.
 
+Run each command only after the previous command succeeds:
+
 ```sh
 bsm-supervisor check
 bsm-supervisor graceful-stop
-bsm-supervisor service-environment --offline-confirmed
-bsm-supervisor unit --user bsm > /tmp/bedrock-server-manager-webui.service
-systemd-analyze verify --man=no /tmp/bedrock-server-manager-webui.service
-```
-
-After verification succeeds:
-
-```sh
-install -m 0644 /tmp/bedrock-server-manager-webui.service /etc/systemd/system/bedrock-server-manager-webui.service
-systemctl daemon-reload
+bsm-supervisor unit-refresh --offline-confirmed
+bsm-supervisor selection
 bsm-supervisor start
 bsm-supervisor status
-ss -ltnp
 ```
+
+`unit-refresh` verifies the candidate, saves the previous unit and private
+environment under `state_dir/service-backups/`, installs the current generated
+files, and reloads systemd. It accepts a fully stopped failed unit and clears its
+failure state. It never starts BSM or acknowledges pending operations. An
+interrupted refresh retains its journal entry and backup location for inspection.
+Use `--user ACCOUNT` if your service account differs from `bsm`.
+
+If `selection` prints `null`, inspect `installations` and activate the intended
+ID with `activate INSTALLATION_ID --offline-confirmed` before starting. A software
+update does not choose a different BSM version automatically.
 
 This briefly stops BSM. If graceful shutdown fails, inspect its journal rather
 than continuing to change its environment or unit. Generated launch guards point

@@ -54,10 +54,49 @@ def install(config: Config, store: Store, release: Release) -> dict:
         root = config.installations_dir.resolve()
         root.mkdir(parents=True, exist_ok=True)
         target = root / installation_id
-        target.mkdir(mode=0o755)  # Never overwrite an existing environment.
         logs = config.state_dir / "logs"
         logs.mkdir(mode=0o700, exist_ok=True)
         log = logs / (installation_id + ".log")
+        if target.exists() or target.is_symlink():
+            registered = next(
+                (
+                    item
+                    for item in store.installations()
+                    if item["id"] == installation_id
+                ),
+                None,
+            )
+            if registered is None:
+                raise ReleaseError(
+                    "An unregistered installation directory already exists; "
+                    "inspect history and installation logs before removing it"
+                )
+            if (
+                target.is_symlink()
+                or registered["path"] != str(target)
+                or registered["version"] != release.version
+            ):
+                raise ReleaseError("Registered installation path or version changed")
+            manifest = json.loads((target / "supervisor-installation.json").read_text())
+            if (
+                manifest.get("source") != "pypi"
+                or manifest.get("version") != release.version
+                or manifest.get("path") != str(target)
+                or manifest.get("index") != INDEX
+                or not (target / "pyvenv.cfg").is_file()
+                or not (target / "bin/bedrock-server-manager").is_file()
+            ):
+                raise ReleaseError("Existing installation metadata is invalid")
+            python = target / "bin/python"
+            run_command([str(python), "-I", "-m", "pip", "check"], log)
+            verification = (
+                "from importlib.metadata import version; "
+                f"assert version('{PACKAGE}') == {release.version!r}, "
+                "'Version mismatch'"
+            )
+            run_command([str(python), "-I", "-c", verification], log)
+            return {**manifest, "id": installation_id, "reused": True}
+        target.mkdir(mode=0o755)  # Never overwrite an existing environment.
         store.note(operation_id, "Creating virtual environment: " + str(target))
         run_command([sys.executable, "-I", "-m", "venv", str(target)], log)
         python = target / "bin/python"
@@ -100,4 +139,4 @@ def install(config: Config, store: Store, release: Release) -> dict:
             stream.flush()
             os.fsync(stream.fileno())
         store.add_installation(installation_id, release.version, target)
-        return manifest
+        return {**manifest, "id": installation_id, "reused": False}

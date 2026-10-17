@@ -224,11 +224,12 @@ class SupervisorTests(unittest.TestCase):
             self.assertEqual(main(["--config", str(config), "installations"]), 0)
         self.assertIn("[]", output.getvalue())
 
+    @patch("bsm_supervisor.cli.selection", return_value={"version": "4.0.0"})
     @patch("bsm_supervisor.cli.require_managed")
     @patch("bsm_supervisor.cli.SystemdService.status", return_value={})
     @patch("bsm_supervisor.cli.SystemdService.control")
     def test_cli_records_service_failure_and_returns_error(
-        self, control, status, managed
+        self, control, status, managed, selected
     ):
         control.side_effect = ServiceError("permission denied")
         config = self.root / "config.toml"

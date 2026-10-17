@@ -17,6 +17,7 @@ from .releases import ReleaseError, discover, select
 from .service import ServiceError, SystemdService
 from .service_environment import write_environment
 from .store import BusyError, Store
+from .unit_refresh import refresh
 
 
 def parser() -> argparse.ArgumentParser:
@@ -45,6 +46,9 @@ def parser() -> argparse.ArgumentParser:
         commands.add_parser(name)
     environment = commands.add_parser("service-environment")
     environment.add_argument("--offline-confirmed", action="store_true", required=True)
+    refresh_unit = commands.add_parser("unit-refresh")
+    refresh_unit.add_argument("--user", default="bsm")
+    refresh_unit.add_argument("--offline-confirmed", action="store_true", required=True)
     releases = commands.add_parser("releases")
     releases.add_argument(
         "--channel", choices=("all", "stable", "prerelease"), default="all"
@@ -163,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
                         )
                 write_environment(config)
             print("Private managed service environment written")
+        elif args.command == "unit-refresh":
+            refresh(config, store, args.user)
+            print("Managed unit and environment refreshed; BSM remains stopped")
         elif args.command == "upgrades":
             print(json.dumps(store.workflows(), indent=2))
         elif args.command == "upgrade-status":
@@ -279,10 +286,28 @@ def main(argv: list[str] | None = None) -> int:
             with store.lock():
                 service = SystemdService(config)
                 if args.command in ("start", "restart"):
+                    if selection(config, store) is None:
+                        raise ValueError(
+                            "No BSM installation selected. Run installations, then "
+                            "activate INSTALLATION_ID --offline-confirmed while stopped"
+                        )
                     require_managed(config, service.status())
                 with store.mutation("service:" + args.command, preserve_on_error=True):
                     service.control(args.command)
-            print(f"Service {args.command} completed")
+                    if args.command in ("start", "restart"):
+                        state = service.status()
+                        if (
+                            state.get("ActiveState") != "active"
+                            or state.get("MainPID") in (None, "", "0")
+                        ):
+                            raise ServiceError(
+                                "BSM did not remain running; inspect status and "
+                                f"journalctl -u {config.service_unit}"
+                            )
+            if args.command in ("start", "restart"):
+                print("BSM process running; use health to verify application readiness")
+            else:
+                print(f"Service {args.command} completed")
         return 0
     except KeyboardInterrupt:
         print(

@@ -59,8 +59,9 @@ WantedBy=multi-user.target
 def activate(config: Config, store: Store, installation_id: str) -> None:
     """Atomically select a registered installation without starting BSM."""
     with (
-        store.mutation("activate:" + installation_id, preserve_on_error=True),
+        store.lock(),
         offline_guard(config),
+        store.mutation("activate:" + installation_id, preserve_on_error=True),
     ):
         candidates = [
             item for item in store.installations() if item["id"] == installation_id

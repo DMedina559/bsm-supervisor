@@ -60,5 +60,6 @@ def verify_environment(config: Config) -> None:
             )
     except FileNotFoundError as exc:
         raise ValueError(
-            "Generate the managed service environment before maintenance"
+            "Run unit-refresh --offline-confirmed while BSM is stopped "
+            "to generate the managed service environment"
         ) from exc
