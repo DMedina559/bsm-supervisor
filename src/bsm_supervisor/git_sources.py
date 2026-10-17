@@ -13,6 +13,7 @@ from packaging.version import Version
 from .checkpoint_files import write_json
 from .config import Config
 from .install import run_command
+from .installation_permissions import create_root, service_readable
 from .releases import INDEX, PACKAGE, ReleaseError
 from .store import Store
 
@@ -81,8 +82,9 @@ def install_git(config: Config, store: Store, kind: str, reference: str) -> dict
             # setuptools-scm needs release tags to compute the package version.
             git(["fetch", "--tags", "--no-recurse-submodules", UPSTREAM], checkout)
             target = config.installations_dir.resolve() / ("git-" + commit)
-            target.parent.mkdir(parents=True, exist_ok=True)
+            create_root(target.parent)
             target.mkdir(mode=0o755)
+            target.chmod(0o755)
             logs = config.state_dir / "logs"
             logs.mkdir(mode=0o700, exist_ok=True)
             log = logs / (target.name + ".log")
@@ -104,6 +106,7 @@ def install_git(config: Config, store: Store, kind: str, reference: str) -> dict
                 ],
                 log,
             )
+            service_readable(target)
             run_command([python, "-I", "-m", "pip", "check"], log)
             metadata = target / "verified-version.json"
             script = (
