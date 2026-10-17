@@ -1,11 +1,1089 @@
-<!doctype html>
-<html lang="en" data-mode="dark" data-density="comfort"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BSM Supervisor</title><link rel="icon" type="image/png" sizes="96x96" href="/frontend/favicon-96.png"><link rel="apple-touch-icon" href="/frontend/icon-192.png"><meta name="theme-color" content="#0b1411"><link rel="stylesheet" href="/frontend/tokens.css"><link rel="stylesheet" href="/frontend/base.css"><link rel="stylesheet" href="/frontend/buttons.css"><link rel="stylesheet" href="/frontend/forms.css"><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script><script defer src="/admin.js"></script></head>
-<body><header class="topbar"><div class="brand"><img src="/frontend/icon-192.png" width="42" height="42" alt=""><div><strong>BSM Supervisor <small class="experimental">Experimental</small></strong><p>Service &amp; recovery console</p></div></div><button class="action-button" id="logout" hidden>Lock console</button></header>
-<main><form id="login" class="login-wrapper"><h1>Connect to your supervisor</h1><p>This supervisor is experimental. Validate recovery before using important server data.</p><p>Use the console access token created inside your container. Your BSM account is separate.</p><label>Console token<input class="form-input" id="token" type="password" autocomplete="off" required></label><button class="main-button primary-button">Connect</button></form>
-<section id="console" hidden><div class="title"><h1 id="page-title">Overview</h1><button class="action-button" id="refresh">Refresh</button></div><p id="notice" role="status" aria-live="polite"></p><nav class="console-nav" aria-label="Administration sections"><button class="action-button" data-section="overview" aria-current="page">Overview</button><button class="action-button" data-section="backups">Backups &amp; restore</button><button class="action-button" data-section="automation">Automation</button><button class="action-button" data-section="settings">Settings</button><button class="action-button" data-section="system">Supervisor</button></nav><div id="page-overview" class="console-page"><div class="grid"><article class="panel"><h2>BSM service</h2><p id="autostart-summary" role="status" aria-live="polite"></p><div class="service-state" id="service"></div><p class="hint">Start checks the managed process. Application readiness is verified separately with the health command.</p><div class="buttons"><button class="action-button primary-button" data-action="start">Start</button><button class="action-button" data-action="graceful-stop">Graceful stop</button><button class="action-button" data-action="restart">Restart</button><button class="action-button" data-admin-action="health">Check readiness</button><button class="action-button" data-admin-action="service-logs">View logs</button></div></article><article class="panel"><h2>Version management</h2><p id="selected"></p><label>Version or channel<input class="form-input" id="version" value="stable" list="channels" aria-describedby="version-help" autocomplete="off" spellcheck="false"></label><datalist id="channels"><option value="stable"></option><option value="prerelease"></option></datalist><p class="hint" id="version-help">Use stable, prerelease, or an exact version such as 4.0.0b7. Installation IDs belong in the selector below.</p><div class="buttons"><button class="action-button" data-action="install">Install</button><button class="action-button" data-action="upgrade">Upgrade</button></div><label>Registered installation<select class="form-input" id="installation"></select></label><button class="action-button" data-action="activate">Select while stopped</button></article><article class="panel"><h2>Recovery checkpoints</h2><p>Creation and restoration require BSM to be stopped.</p><button class="action-button" data-action="checkpoint-create">Create checkpoint</button><label>Saved checkpoint<select class="form-input" id="checkpoint"></select></label><div class="buttons"><button class="action-button" data-action="checkpoint-verify">Verify</button><button class="action-button" data-action="restore-plan">Inspect restore</button><button class="action-button danger-button" id="restore-open">Restore wizard</button></div></article><article class="panel"><h2>Recovery</h2><label>Operation or workflow ID<input class="form-input" id="recovery" inputmode="numeric"></label><div class="buttons"><button class="action-button" data-action="upgrade-resume">Resume upgrade</button><button class="action-button" data-action="upgrade-cancel">Cancel unstarted upgrade</button><button class="action-button danger-button" data-action="upgrade-restore">Restore upgrade checkpoint</button><button class="action-button" data-action="restore-recover">Recover restore</button><button class="action-button" data-action="acknowledge">Acknowledge interruption</button></div><p>Inspect the history and current service state before acknowledging anything. Acknowledgement does not restore data.</p></article></div><div class="activity-grid"><article class="panel"><h2>Operations</h2><div id="operations"></div></article><article class="panel"><h2>Console jobs</h2><div id="jobs"></div></article><article class="panel"><h2>Progress</h2><pre class="log" id="events" aria-live="polite"></pre></article></div></div><div id="page-backups" class="console-page" hidden><div class="grid two-columns"><div class="stack"><article class="panel"><h2>Backups</h2><p>Create a verified checkpoint of the database, configuration and configured data. A running BSM is stopped gracefully and restarted after successful capture.</p><button class="action-button primary-button" data-admin-action="backup-create">Back up BSM</button><div id="backup-list" class="scroll-list"></div><label>Checkpoint<select class="form-input" id="archive-checkpoint"></select></label><div class="buttons"><button class="action-button" id="backup-inspect">Inspect contents</button><button class="action-button" id="backup-restore">Restore wizard</button><button class="action-button" id="backup-pin">Pin</button><button class="action-button" id="backup-unpin">Unpin</button><button class="action-button danger-button" id="backup-delete">Delete</button></div></article><article class="panel"><h2>Checkpoint inspection</h2><pre class="log" id="backup-preview">Choose a checkpoint to inspect its database, version and storage coverage.</pre></article></div><div class="stack"><article class="panel"><h2>Download &amp; upload</h2><label><input type="checkbox" id="encrypt-export"> Encrypt download</label><label>Archive password (16 characters minimum)<input class="form-input" id="archive-password" type="password" autocomplete="new-password"></label><p class="hint">Supply the original password for encrypted uploads. Passwords are used for this operation only. Unencrypted archives contain private BSM data.</p><button class="action-button" id="backup-export">Prepare download</button><label>Checkpoint archive<input class="form-input" id="archive-file" type="file" accept=".bsmcheckpoint,.zip"></label><button class="action-button" id="backup-upload">Upload archive</button><label>Uploaded archive<select class="form-input" id="upload-transfer"></select></label><button class="action-button" id="backup-import">Verify &amp; import</button><p id="transfer-status" role="status" aria-live="polite"></p><p class="hint">Import verifies the archive and adds a checkpoint. It never restores data automatically. Transfers expire after 24 hours.</p><div id="transfer-list" class="scroll-list"></div></article><article class="panel"><h2>Retention</h2><label>Recent checkpoints to keep<input class="form-input" id="keep-checkpoints" type="number" value="3" min="1" max="100000"></label><button class="action-button danger-button" id="backup-prune">Prune checkpoints</button><p class="hint">Pinned backups and recovery checkpoints for installed versions remain protected.</p><label>Job log retention (days)<input class="form-input" id="keep-days" type="number" value="30" min="1"></label><label>Recent jobs to retain<input class="form-input" id="keep-jobs" type="number" value="100" min="1"></label><button class="action-button" id="journal-prune">Prune completed logs</button></article></div></div></div>
-<div id="page-automation" class="console-page" hidden><div class="grid two-columns"><div class="stack"><article class="panel"><h2 id="schedule-heading">Create or edit schedule</h2><form id="schedule-form"><label>Name<input class="form-input" id="schedule-name" pattern="[a-z][a-z0-9-]{0,39}" required placeholder="nightly-backup"></label><label>Action<select class="form-input" id="schedule-action"><option value="check-updates">Check BSM updates</option><option value="checkpoint">Back up BSM</option><option value="upgrade">Upgrade BSM</option><option value="export">Export latest checkpoint</option><option value="prune">Prune checkpoints</option><option value="journal-prune">Prune completed logs</option><option value="notify">Deliver notifications</option></select></label><label>Systemd calendar (UTC)<input class="form-input" id="schedule-calendar" value="*-*-* 03:00:00 UTC" required></label><div class="field-pair"><label>Window start (UTC)<input class="form-input" id="schedule-start" type="time" value="03:00" required></label><label>Window end (UTC)<input class="form-input" id="schedule-end" type="time" value="04:00" required></label></div><label>ISO weekdays (1 = Monday, 7 = Sunday)<input class="form-input" id="schedule-days" value="1,2,3,4,5,6,7" required></label><label>Release channel<select class="form-input" id="schedule-selector"><option>stable</option><option>prerelease</option></select></label><label>Checkpoints to keep<input class="form-input" id="schedule-keep" type="number" min="1" value="3"></label><details><summary>Export and journal retention options</summary><label>Export directory<input class="form-input" id="schedule-destination" placeholder="/mnt/backups"></label><label>Required mount<input class="form-input" id="schedule-mount" placeholder="/mnt/backups"></label><label>Existing private passphrase file<input class="form-input" id="schedule-passphrase" placeholder="/etc/bsm-supervisor/backup-password"></label><label>Job log days<input class="form-input" id="schedule-keep-days" type="number" min="1" value="30"></label><label>Recent jobs<input class="form-input" id="schedule-keep-jobs" type="number" min="1" value="100"></label></details><label><input type="checkbox" id="schedule-maintenance"> Allow maintenance downtime/deletion within this window</label><label><input type="checkbox" id="schedule-migrations"> Accept database migrations for scheduled upgrades</label><button class="action-button primary-button">Save schedule</button></form><p class="hint">Schedules use UTC, skip missed windows, and retain recovery blockers. Saving an existing name replaces its owned policy and timer.</p></article><article class="panel"><h2>Schedules</h2><div id="schedule-list"></div><details><summary>Policy details</summary><pre class="log" id="schedules"></pre></details></article></div><div class="stack"><article class="panel"><h2>Notifications</h2><p id="notification-status"></p><form id="notification-form"><label>HTTPS webhook URL<input class="form-input" id="notification-url" type="password" autocomplete="new-password" required></label><button class="action-button">Save webhook</button></form><div class="buttons"><button class="action-button" data-admin-action="notifications-deliver">Deliver pending events</button><button class="action-button danger-button" data-admin-action="notifications-disable">Disable</button></div><p class="hint">Webhook URLs are concealed. Notifications contain completion IDs, state and timestamps. Use a notification schedule for automatic delivery.</p></article></div></div></div>
-<div id="page-settings" class="console-page" hidden><article class="panel"><h2>Supervisor &amp; BSM settings</h2><p>Runtime listener and database changes require BSM to be stopped. Save refreshes its generated unit and leaves BSM stopped. Proxmox environment overrides are shown and must be edited at their source.</p><p id="settings-overrides" class="hint"></p><form id="settings-form"><div class="grid two-columns"><div><label>BSM listener<select class="form-input" id="setting-bsm_host"><option>127.0.0.1</option><option>0.0.0.0</option><option>::1</option><option>::</option></select></label><label>BSM port<input class="form-input" id="setting-bsm_port" type="number" min="1" max="65535" required></label><label>Log level<select class="form-input" id="setting-bsm_log_level"><option value="">BSM default</option><option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option><option>CRITICAL</option><option>NOTSET</option></select></label><label>Replace database URL (blank keeps current)<input class="form-input" id="setting-bsm_db_url" type="password" autocomplete="new-password"></label><label><input type="checkbox" id="database-clear"> Clear database URL override</label></div><div><label>Service timeout (seconds)<input class="form-input" id="setting-service_timeout" type="number" min="1" max="3600" required></label><label>Readiness timeout (seconds)<input class="form-input" id="setting-readiness_timeout" type="number" min="1" max="3600" required></label><label>Console job timeout (seconds)<input class="form-input" id="setting-web_job_timeout" type="number" min="1" max="86400" required></label><label>Archive limit (bytes)<input class="form-input" id="setting-web_transfer_limit" type="number" min="1024" max="1099511627776" required></label><label><input type="checkbox" id="setting-web_auto_start"> Start BSM after console startup</label><label><input type="checkbox" id="setting-stop_bsm_with_supervisor"> Stop BSM when the supervisor console stops</label><p class="hint">Requires the standard bsm-supervisor-console.service. Stop BSM before changing this setting. Console restarts stop BSM too; automatic startup controls whether it starts again.</p></div></div><button class="action-button primary-button">Save settings</button></form><details><summary>Storage paths and managed service</summary><pre class="log" id="settings-paths"></pre></details><p class="hint">Storage relocation and console listener/origin changes require host configuration so an incorrect change cannot strand this console.</p></article></div>
-<div id="page-system" class="console-page" hidden><div class="grid two-columns"><article class="panel"><h2>Supervisor updates</h2><p id="supervisor-version"></p><button class="action-button" data-admin-action="supervisor-check">Check releases</button><label>Release tag, branch or commit<input class="form-input" id="supervisor-ref" value="latest" placeholder="v0.1.0b1"></label><p class="hint">latest selects a stable release. Choose an explicit beta tag or dev for prerelease builds. Updates may stop and restart BSM.</p><label>GitHub token (private repository only)<input class="form-input" id="github-token" type="password" autocomplete="off"></label><div class="buttons"><button class="action-button" id="supervisor-update">Update supervisor</button><button class="action-button" id="supervisor-resume">Resume update</button><button class="action-button" data-admin-action="console-restart">Restart console</button></div><p class="hint">Finish jobs before restarting the console. After updating, restart the console to load its new code, then reload and reconnect. Custom service units require a host restart command.</p></article><article class="panel"><h2>Diagnostics &amp; cleanup</h2><div class="buttons"><button class="action-button" data-admin-action="doctor">Run diagnostics</button><button class="action-button" data-admin-action="unit-refresh">Refresh managed unit</button><button class="action-button" id="diagnostics-download">Download last report</button></div><label>Registered installation<select class="form-input" id="remove-installation"></select></label><button class="action-button danger-button" id="installation-remove">Remove unused installation</button><label>Restore operation ID<input class="form-input" id="restore-cleanup-id" type="number" min="1"></label><button class="action-button danger-button" id="restore-cleanup">Discard retained originals</button><p class="hint">Cleanup requires BSM to be stopped and the restore transaction to be resolved.</p></article></div></div>
-<article class="panel output-panel"><h2>Action output</h2><p id="admin-progress" role="status" aria-live="polite">Choose an action to see its result here. Operation history remains under Overview.</p><pre class="log" id="admin-output"></pre></article>
-<dialog id="restore-dialog" aria-labelledby="restore-title"><h2 id="restore-title">Restore BSM data</h2><p>This replaces saved database, configuration and data with the chosen checkpoint. Newer changes are discarded. A pinned recovery checkpoint will be captured first.</p><pre class="log" id="restore-details"></pre><label><input type="checkbox" checked disabled> Full BSM data, including database and configuration</label><p class="hint">Partial database-only restoration is unsupported because it can leave configuration and server files inconsistent.</p><label><input type="checkbox" id="restore-confirm"> I confirm downtime and replacement of current data, including BSM instances outside the managed service.</label><label><input type="checkbox" id="restore-restart"> Start BSM after successful restoration</label><div class="buttons"><button class="action-button danger-button" id="restore-confirm-button">Restore data</button><button class="action-button" id="restore-cancel">Cancel</button></div></dialog>
-</section><p id="error" role="alert"></p><footer>AGPLv3 or later · <a href="https://github.com/DMedina559/bsm-supervisor">Source code</a></footer></main></body></html>
+<!DOCTYPE html>
+<html data-density="comfort" data-mode="dark" lang="en">
+ <head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width,initial-scale=1" name="viewport"/>
+  <title>
+   BSM Supervisor
+  </title>
+  <link href="/frontend/favicon-96.png" rel="icon" sizes="96x96" type="image/png"/>
+  <link href="/frontend/icon-192.png" rel="apple-touch-icon"/>
+  <meta content="#0b1411" name="theme-color"/>
+  <link href="/frontend/tokens.css" rel="stylesheet"/>
+  <link href="/frontend/base.css" rel="stylesheet"/>
+  <link href="/frontend/buttons.css" rel="stylesheet"/>
+  <link href="/frontend/forms.css" rel="stylesheet"/>
+  <link href="/style.css" rel="stylesheet"/>
+  <script defer="" src="/app.js"></script>
+  <script defer="" src="/admin.js"></script>
+ </head>
+ <body>
+  <a class="skip-link" href="#page-title">
+   Skip to workspace
+  </a>
+  <header class="topbar">
+   <div class="brand">
+    <img alt="" height="36" src="/frontend/icon-192.png" width="36"/>
+    <div>
+     <strong>
+      BSM Supervisor
+     </strong>
+     <p>
+      Service &amp; recovery
+     </p>
+    </div>
+   </div>
+   <div aria-label="Breadcrumb" class="breadcrumbs">
+    <span>
+     Supervisor
+    </span>
+    <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+     <path d="m9 5 7 7-7 7"></path>
+    </svg>
+    <span id="breadcrumb-page">
+     Overview
+    </span>
+   </div>
+   <span class="connection-chip" data-state="locked" id="connection-chip">
+    <i aria-hidden="true"></i>
+    <span id="console-connection">
+     Locked
+    </span>
+   </span>
+   <button class="action-button" hidden="" id="logout">
+    <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+     <rect height="11" rx="2" width="14" x="5" y="10"></rect>
+     <path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"></path>
+    </svg>
+    Lock console
+   </button>
+  </header>
+  <main>
+   <form class="login-wrapper" id="login">
+    <span class="login-emblem">
+     <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+      <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"></path>
+      <path d="m8 12 3 3 5-6"></path>
+     </svg>
+    </span>
+    <p class="eyebrow">
+     BSM SUPERVISOR
+    </p>
+    <h1>
+     Your instance, under control.
+    </h1>
+    <p>
+     Manage versions, backups and service recovery. Experimental software — validate recovery before relying on it.
+    </p>
+    <p>
+     Use the console access token created inside your container. Your BSM account is separate.
+    </p>
+    <label>
+     Console token
+     <input autocomplete="off" class="form-input" id="token" placeholder="Enter your console access token" required="" type="password"/>
+    </label>
+    <button class="main-button primary-button">
+     Unlock workspace
+    </button>
+   </form>
+   <section hidden="" id="console">
+    <aside aria-label="Supervisor workspace" class="workspace-sidebar">
+     <div class="workspace-label">
+      MANAGE INSTANCE
+     </div>
+     <nav aria-label="Supervisor navigation" class="console-nav">
+      <button aria-current="page" class="action-button" data-section="overview" type="button">
+       <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+        <rect height="7" rx="1.5" width="7" x="3" y="3"></rect>
+        <rect height="7" rx="1.5" width="7" x="14" y="3"></rect>
+        <rect height="7" rx="1.5" width="7" x="3" y="14"></rect>
+        <rect height="7" rx="1.5" width="7" x="14" y="14"></rect>
+       </svg>
+       <span>
+        Overview
+       </span>
+      </button>
+      <button class="action-button" data-section="backups" type="button">
+       <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+        <ellipse cx="12" cy="5" rx="8" ry="3"></ellipse>
+        <path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"></path>
+       </svg>
+       <span>
+        Backups &amp; restore
+       </span>
+      </button>
+      <button class="action-button" data-section="automation" type="button">
+       <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M12 7v5l3 2"></path>
+       </svg>
+       <span>
+        Automation
+       </span>
+      </button>
+      <button class="action-button" data-section="settings" type="button">
+       <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+        <path d="M4 7h16M4 17h16"></path>
+        <circle cx="9" cy="7" r="3"></circle>
+        <circle cx="15" cy="17" r="3"></circle>
+       </svg>
+       <span>
+        Settings
+       </span>
+      </button>
+      <button class="action-button" data-section="system" type="button">
+       <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+        <rect height="8" rx="2" width="18" x="3" y="3"></rect>
+        <rect height="8" rx="2" width="18" x="3" y="13"></rect>
+        <path d="M7 7h.01M7 17h.01M11 7h6M11 17h6"></path>
+       </svg>
+       <span>
+        Supervisor
+       </span>
+      </button>
+     </nav>
+     <div class="sidebar-context">
+      <span class="eyebrow">
+       Selected BSM
+      </span>
+      <strong id="sidebar-installation">
+       No version selected
+      </strong>
+      <span class="sidebar-caption">
+       One instance. Full lifecycle control.
+      </span>
+     </div>
+     <div class="sidebar-footer">
+      <span class="experimental">
+       Experimental
+      </span>
+      <p id="sidebar-version">
+       BSM Supervisor
+      </p>
+      <a href="https://github.com/DMedina559/bsm-supervisor" rel="noopener noreferrer" target="_blank">
+       Source &amp; documentation ↗
+      </a>
+     </div>
+    </aside>
+    <div class="workspace-content">
+     <div class="title">
+      <div>
+       <p class="eyebrow">
+        INSTANCE MANAGEMENT · EXPERIMENTAL
+       </p>
+       <h1 id="page-title" tabindex="-1">
+        Overview
+       </h1>
+       <p class="page-description" id="page-description">
+        Manage your BSM service, versions and recovery from one workspace.
+       </p>
+      </div>
+      <button class="action-button" id="refresh">
+       <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+        <path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 2M5 16a8 8 0 0 0 13 2"></path>
+       </svg>
+       Refresh
+      </button>
+     </div>
+     <p aria-live="polite" id="notice" role="status"></p>
+     <div class="console-page" id="page-overview">
+      <div aria-label="Instance summary" class="summary-grid">
+       <article class="summary-card">
+        <div class="summary-icon">
+         <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+          <rect height="8" rx="2" width="18" x="3" y="3"></rect>
+          <rect height="8" rx="2" width="18" x="3" y="13"></rect>
+          <path d="M7 7h.01M7 17h.01M11 7h6M11 17h6"></path>
+         </svg>
+        </div>
+        <div>
+         <span class="metric-label">
+          BSM service
+         </span>
+         <strong id="summary-service">
+          Unknown
+         </strong>
+         <span class="metric-caption" id="summary-service-detail">
+          Waiting for service status
+         </span>
+        </div>
+       </article>
+       <article class="summary-card">
+        <div class="summary-icon">
+         <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+          <path d="m12 3 9 5-9 5-9-5 9-5ZM3 8v9l9 5 9-5V8M12 13v9M8 5l9 5"></path>
+         </svg>
+        </div>
+        <div>
+         <span class="metric-label">
+          Selected version
+         </span>
+         <strong id="summary-version">
+          Not selected
+         </strong>
+         <span class="metric-caption" id="summary-version-detail">
+          Choose an installed build
+         </span>
+        </div>
+       </article>
+       <article class="summary-card">
+        <div class="summary-icon">
+         <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+          <ellipse cx="12" cy="5" rx="8" ry="3"></ellipse>
+          <path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"></path>
+         </svg>
+        </div>
+        <div>
+         <span class="metric-label">
+          Checkpoints
+         </span>
+         <strong id="summary-backups">
+          0
+         </strong>
+         <span class="metric-caption" id="summary-backups-detail">
+          Saved recovery points
+         </span>
+        </div>
+       </article>
+       <article class="summary-card">
+        <div class="summary-icon">
+         <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+          <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"></path>
+          <path d="m8 12 3 3 5-6"></path>
+         </svg>
+        </div>
+        <div>
+         <span class="metric-label">
+          Operations
+         </span>
+         <strong id="summary-attention">
+          All clear
+         </strong>
+         <span class="metric-caption" id="summary-attention-detail">
+          No pending interruptions
+         </span>
+        </div>
+       </article>
+      </div>
+      <div class="grid overview-grid">
+       <article class="panel service-panel">
+        <div class="panel-heading section-heading">
+         <span class="panel-icon">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <rect height="8" rx="2" width="18" x="3" y="3"></rect>
+           <rect height="8" rx="2" width="18" x="3" y="13"></rect>
+           <path d="M7 7h.01M7 17h.01M11 7h6M11 17h6"></path>
+          </svg>
+         </span>
+         <h2>
+          BSM service
+         </h2>
+        </div>
+        <p aria-live="polite" id="autostart-summary" role="status"></p>
+        <div class="service-state" id="service"></div>
+        <p class="hint">
+         Start checks the managed process. Application readiness is verified separately with the health command.
+        </p>
+        <div class="buttons">
+         <button class="action-button primary-button" data-action="start">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="m8 4 12 8-12 8V4Z"></path>
+          </svg>
+          Start
+         </button>
+         <button class="action-button" data-action="graceful-stop">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <rect height="14" rx="2" width="14" x="5" y="5"></rect>
+          </svg>
+          Graceful stop
+         </button>
+         <button class="action-button" data-action="restart">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 2M5 16a8 8 0 0 0 13 2"></path>
+          </svg>
+          Restart
+         </button>
+         <button class="action-button" data-admin-action="health">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"></path>
+           <path d="m8 12 3 3 5-6"></path>
+          </svg>
+          Check readiness
+         </button>
+         <button class="action-button" data-admin-action="service-logs">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="M8 3h10a2 2 0 0 1 2 2v16H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2ZM8 7h8M8 11h8M8 15h5"></path>
+          </svg>
+          View logs
+         </button>
+        </div>
+       </article>
+       <article class="panel">
+        <div class="panel-heading section-heading">
+         <span class="panel-icon">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="m12 3 9 5-9 5-9-5 9-5ZM3 8v9l9 5 9-5V8M12 13v9M8 5l9 5"></path>
+          </svg>
+         </span>
+         <h2>
+          Version management
+         </h2>
+        </div>
+        <p id="selected"></p>
+        <label>
+         Version or channel
+         <input aria-describedby="version-help" autocomplete="off" class="form-input" id="version" list="channels" spellcheck="false" value="stable"/>
+        </label>
+        <datalist id="channels">
+         <option value="stable"></option>
+         <option value="prerelease"></option>
+        </datalist>
+        <p class="hint" id="version-help">
+         Use stable, prerelease, or an exact version such as 4.0.0b7. Installation IDs belong in the selector below.
+        </p>
+        <div class="buttons">
+         <button class="action-button" data-action="install">
+          Install
+         </button>
+         <button class="action-button" data-action="upgrade">
+          Upgrade
+         </button>
+        </div>
+        <label>
+         Registered installation
+         <select class="form-input" id="installation"></select>
+        </label>
+        <button class="action-button" data-action="activate">
+         Select while stopped
+        </button>
+       </article>
+       <article class="panel">
+        <div class="panel-heading section-heading">
+         <span class="panel-icon">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <ellipse cx="12" cy="5" rx="8" ry="3"></ellipse>
+           <path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"></path>
+          </svg>
+         </span>
+         <h2>
+          Recovery checkpoints
+         </h2>
+        </div>
+        <p>
+         Creation and restoration require BSM to be stopped.
+        </p>
+        <button class="action-button" data-action="checkpoint-create">
+         <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+          <ellipse cx="12" cy="5" rx="8" ry="3"></ellipse>
+          <path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"></path>
+         </svg>
+         Create checkpoint
+        </button>
+        <label>
+         Saved checkpoint
+         <select class="form-input" id="checkpoint"></select>
+        </label>
+        <div class="buttons">
+         <button class="action-button" data-action="checkpoint-verify">
+          Verify
+         </button>
+         <button class="action-button" data-action="restore-plan">
+          Inspect restore
+         </button>
+         <button class="action-button danger-button" id="restore-open">
+          Restore wizard
+         </button>
+        </div>
+       </article>
+       <article class="panel recovery-panel">
+        <div class="panel-heading section-heading">
+         <span class="panel-icon">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"></path>
+           <path d="m8 12 3 3 5-6"></path>
+          </svg>
+         </span>
+         <h2>
+          Recovery
+         </h2>
+        </div>
+        <label>
+         Operation or workflow ID
+         <input class="form-input" id="recovery" inputmode="numeric"/>
+        </label>
+        <div class="buttons">
+         <button class="action-button" data-action="upgrade-resume">
+          Resume upgrade
+         </button>
+         <button class="action-button" data-action="upgrade-cancel">
+          Cancel unstarted upgrade
+         </button>
+         <button class="action-button danger-button" data-action="upgrade-restore">
+          Restore upgrade checkpoint
+         </button>
+         <button class="action-button" data-action="restore-recover">
+          Recover restore
+         </button>
+         <button class="action-button" data-action="acknowledge">
+          Acknowledge interruption
+         </button>
+        </div>
+        <p>
+         Inspect the history and current service state before acknowledging anything. Acknowledgement does not restore data.
+        </p>
+       </article>
+      </div>
+      <div class="activity-grid">
+       <article class="panel">
+        <div class="panel-heading section-heading">
+         <span class="panel-icon">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="M3 12h4l3-8 4 16 3-8h4"></path>
+          </svg>
+         </span>
+         <h2>
+          Operations
+         </h2>
+        </div>
+        <div id="operations"></div>
+       </article>
+       <article class="panel">
+        <div class="panel-heading section-heading">
+         <span class="panel-icon">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="M8 3h10a2 2 0 0 1 2 2v16H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2ZM8 7h8M8 11h8M8 15h5"></path>
+          </svg>
+         </span>
+         <h2>
+          Console jobs
+         </h2>
+        </div>
+        <div id="jobs"></div>
+        <p class="empty-caption">
+         No console jobs yet. Your next action will appear here.
+        </p>
+       </article>
+       <article class="panel progress-panel">
+        <div class="panel-heading section-heading">
+         <span class="panel-icon">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="M3 12h4l3-8 4 16 3-8h4"></path>
+          </svg>
+         </span>
+         <h2>
+          Progress
+         </h2>
+        </div>
+        <pre aria-live="polite" class="log" id="events"></pre>
+        <p class="empty-caption">
+         Operation progress will appear here as work runs.
+        </p>
+       </article>
+      </div>
+     </div>
+     <div class="console-page" hidden="" id="page-backups">
+      <div class="grid two-columns">
+       <div class="stack">
+        <article class="panel">
+         <div class="panel-heading section-heading">
+          <span class="panel-icon">
+           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+            <ellipse cx="12" cy="5" rx="8" ry="3"></ellipse>
+            <path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"></path>
+           </svg>
+          </span>
+          <h2>
+           Backups
+          </h2>
+         </div>
+         <p>
+          Create a verified checkpoint of the database, configuration and configured data. A running BSM is stopped gracefully and restarted after successful capture.
+         </p>
+         <button class="action-button primary-button" data-admin-action="backup-create">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <ellipse cx="12" cy="5" rx="8" ry="3"></ellipse>
+           <path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"></path>
+          </svg>
+          Back up BSM
+         </button>
+         <div class="scroll-list" id="backup-list"></div>
+         <label>
+          Checkpoint
+          <select class="form-input" id="archive-checkpoint"></select>
+         </label>
+         <div class="buttons">
+          <button class="action-button" id="backup-inspect">
+           Inspect contents
+          </button>
+          <button class="action-button" id="backup-restore">
+           Restore wizard
+          </button>
+          <button class="action-button" id="backup-pin">
+           Pin
+          </button>
+          <button class="action-button" id="backup-unpin">
+           Unpin
+          </button>
+          <button class="action-button danger-button" id="backup-delete">
+           Delete
+          </button>
+         </div>
+        </article>
+        <article class="panel">
+         <div class="panel-heading section-heading">
+          <span class="panel-icon">
+           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+            <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"></path>
+            <path d="m8 12 3 3 5-6"></path>
+           </svg>
+          </span>
+          <h2>
+           Checkpoint inspection
+          </h2>
+         </div>
+         <pre class="log" id="backup-preview">Choose a checkpoint to inspect its database, version and storage coverage.</pre>
+        </article>
+       </div>
+       <div class="stack">
+        <article class="panel">
+         <div class="panel-heading section-heading">
+          <span class="panel-icon">
+           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+            <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"></path>
+           </svg>
+          </span>
+          <h2>
+           Download &amp; upload
+          </h2>
+         </div>
+         <label>
+          <input id="encrypt-export" type="checkbox"/>
+          Encrypt download
+         </label>
+         <label>
+          Archive password (16 characters minimum)
+          <input autocomplete="new-password" class="form-input" id="archive-password" type="password"/>
+         </label>
+         <p class="hint">
+          Supply the original password for encrypted uploads. Passwords are used for this operation only. Unencrypted archives contain private BSM data.
+         </p>
+         <button class="action-button" id="backup-export">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"></path>
+          </svg>
+          Prepare download
+         </button>
+         <label>
+          Checkpoint archive
+          <input accept=".bsmcheckpoint,.zip" class="form-input" id="archive-file" type="file"/>
+         </label>
+         <button class="action-button" id="backup-upload">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="M12 16V4m-5 5 5-5 5 5M4 16v5h16v-5"></path>
+          </svg>
+          Upload archive
+         </button>
+         <label>
+          Uploaded archive
+          <select class="form-input" id="upload-transfer"></select>
+         </label>
+         <button class="action-button" id="backup-import">
+          Verify &amp; import
+         </button>
+         <p aria-live="polite" id="transfer-status" role="status"></p>
+         <p class="hint">
+          Import verifies the archive and adds a checkpoint. It never restores data automatically. Transfers expire after 24 hours.
+         </p>
+         <div class="scroll-list" id="transfer-list"></div>
+        </article>
+        <article class="panel">
+         <div class="panel-heading section-heading">
+          <span class="panel-icon">
+           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+            <path d="M4 7h16M4 17h16"></path>
+            <circle cx="9" cy="7" r="3"></circle>
+            <circle cx="15" cy="17" r="3"></circle>
+           </svg>
+          </span>
+          <h2>
+           Retention
+          </h2>
+         </div>
+         <label>
+          Recent checkpoints to keep
+          <input class="form-input" id="keep-checkpoints" max="100000" min="1" type="number" value="3"/>
+         </label>
+         <button class="action-button danger-button" id="backup-prune">
+          Prune checkpoints
+         </button>
+         <p class="hint">
+          Pinned backups and recovery checkpoints for installed versions remain protected.
+         </p>
+         <label>
+          Job log retention (days)
+          <input class="form-input" id="keep-days" min="1" type="number" value="30"/>
+         </label>
+         <label>
+          Recent jobs to retain
+          <input class="form-input" id="keep-jobs" min="1" type="number" value="100"/>
+         </label>
+         <button class="action-button" id="journal-prune">
+          Prune completed logs
+         </button>
+        </article>
+       </div>
+      </div>
+     </div>
+     <div class="console-page" hidden="" id="page-automation">
+      <div class="grid two-columns">
+       <div class="stack">
+        <article class="panel">
+         <div class="panel-heading section-heading">
+          <span class="panel-icon">
+           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M12 7v5l3 2"></path>
+           </svg>
+          </span>
+          <h2 id="schedule-heading">
+           Create or edit schedule
+          </h2>
+         </div>
+         <form id="schedule-form">
+          <label>
+           Name
+           <input class="form-input" id="schedule-name" pattern="[a-z][a-z0-9-]{0,39}" placeholder="nightly-backup" required=""/>
+          </label>
+          <label>
+           Action
+           <select class="form-input" id="schedule-action">
+            <option value="check-updates">
+             Check BSM updates
+            </option>
+            <option value="checkpoint">
+             Back up BSM
+            </option>
+            <option value="upgrade">
+             Upgrade BSM
+            </option>
+            <option value="export">
+             Export latest checkpoint
+            </option>
+            <option value="prune">
+             Prune checkpoints
+            </option>
+            <option value="journal-prune">
+             Prune completed logs
+            </option>
+            <option value="notify">
+             Deliver notifications
+            </option>
+           </select>
+          </label>
+          <label>
+           Systemd calendar (UTC)
+           <input class="form-input" id="schedule-calendar" required="" value="*-*-* 03:00:00 UTC"/>
+          </label>
+          <div class="field-pair">
+           <label>
+            Window start (UTC)
+            <input class="form-input" id="schedule-start" required="" type="time" value="03:00"/>
+           </label>
+           <label>
+            Window end (UTC)
+            <input class="form-input" id="schedule-end" required="" type="time" value="04:00"/>
+           </label>
+          </div>
+          <label>
+           ISO weekdays (1 = Monday, 7 = Sunday)
+           <input class="form-input" id="schedule-days" required="" value="1,2,3,4,5,6,7"/>
+          </label>
+          <label>
+           Release channel
+           <select class="form-input" id="schedule-selector">
+            <option>
+             stable
+            </option>
+            <option>
+             prerelease
+            </option>
+           </select>
+          </label>
+          <label>
+           Checkpoints to keep
+           <input class="form-input" id="schedule-keep" min="1" type="number" value="3"/>
+          </label>
+          <details>
+           <summary>
+            Export and journal retention options
+           </summary>
+           <label>
+            Export directory
+            <input class="form-input" id="schedule-destination" placeholder="/mnt/backups"/>
+           </label>
+           <label>
+            Required mount
+            <input class="form-input" id="schedule-mount" placeholder="/mnt/backups"/>
+           </label>
+           <label>
+            Existing private passphrase file
+            <input class="form-input" id="schedule-passphrase" placeholder="/etc/bsm-supervisor/backup-password"/>
+           </label>
+           <label>
+            Job log days
+            <input class="form-input" id="schedule-keep-days" min="1" type="number" value="30"/>
+           </label>
+           <label>
+            Recent jobs
+            <input class="form-input" id="schedule-keep-jobs" min="1" type="number" value="100"/>
+           </label>
+          </details>
+          <label>
+           <input id="schedule-maintenance" type="checkbox"/>
+           Allow maintenance downtime/deletion within this window
+          </label>
+          <label>
+           <input id="schedule-migrations" type="checkbox"/>
+           Accept database migrations for scheduled upgrades
+          </label>
+          <button class="action-button primary-button">
+           Save schedule
+          </button>
+         </form>
+         <p class="hint">
+          Schedules use UTC, skip missed windows, and retain recovery blockers. Saving an existing name replaces its owned policy and timer.
+         </p>
+        </article>
+        <article class="panel">
+         <div class="panel-heading section-heading">
+          <span class="panel-icon">
+           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M12 7v5l3 2"></path>
+           </svg>
+          </span>
+          <h2>
+           Schedules
+          </h2>
+         </div>
+         <div id="schedule-list"></div>
+         <details>
+          <summary>
+           Policy details
+          </summary>
+          <pre class="log" id="schedules"></pre>
+         </details>
+        </article>
+       </div>
+       <div class="stack">
+        <article class="panel">
+         <div class="panel-heading section-heading">
+          <span class="panel-icon">
+           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+            <path d="M3 12h4l3-8 4 16 3-8h4"></path>
+           </svg>
+          </span>
+          <h2>
+           Notifications
+          </h2>
+         </div>
+         <p id="notification-status"></p>
+         <form id="notification-form">
+          <label>
+           HTTPS webhook URL
+           <input autocomplete="new-password" class="form-input" id="notification-url" required="" type="password"/>
+          </label>
+          <button class="action-button">
+           Save webhook
+          </button>
+         </form>
+         <div class="buttons">
+          <button class="action-button" data-admin-action="notifications-deliver">
+           Deliver pending events
+          </button>
+          <button class="action-button danger-button" data-admin-action="notifications-disable">
+           Disable
+          </button>
+         </div>
+         <p class="hint">
+          Webhook URLs are concealed. Notifications contain completion IDs, state and timestamps. Use a notification schedule for automatic delivery.
+         </p>
+        </article>
+       </div>
+      </div>
+     </div>
+     <div class="console-page" hidden="" id="page-settings">
+      <article class="panel">
+       <div class="panel-heading section-heading">
+        <span class="panel-icon">
+         <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+          <path d="M4 7h16M4 17h16"></path>
+          <circle cx="9" cy="7" r="3"></circle>
+          <circle cx="15" cy="17" r="3"></circle>
+         </svg>
+        </span>
+        <h2>
+         Supervisor &amp; BSM settings
+        </h2>
+       </div>
+       <p>
+        Runtime listener, database and lifecycle changes require BSM to be stopped. Save refreshes its generated unit and leaves BSM stopped. Proxmox environment overrides are shown and must be edited at their source.
+       </p>
+       <p class="hint" id="settings-overrides"></p>
+       <form id="settings-form">
+        <div class="grid two-columns">
+         <div>
+          <h3 class="form-section-title">
+           BSM runtime
+          </h3>
+          <label>
+           BSM listener
+           <select class="form-input" id="setting-bsm_host">
+            <option>
+             127.0.0.1
+            </option>
+            <option>
+             0.0.0.0
+            </option>
+            <option>
+             ::1
+            </option>
+            <option>
+             ::
+            </option>
+           </select>
+          </label>
+          <label>
+           BSM port
+           <input class="form-input" id="setting-bsm_port" max="65535" min="1" required="" type="number"/>
+          </label>
+          <label>
+           Log level
+           <select class="form-input" id="setting-bsm_log_level">
+            <option value="">
+             BSM default
+            </option>
+            <option>
+             DEBUG
+            </option>
+            <option>
+             INFO
+            </option>
+            <option>
+             WARNING
+            </option>
+            <option>
+             ERROR
+            </option>
+            <option>
+             CRITICAL
+            </option>
+            <option>
+             NOTSET
+            </option>
+           </select>
+          </label>
+          <label>
+           Replace database URL (blank keeps current)
+           <input autocomplete="new-password" class="form-input" id="setting-bsm_db_url" type="password"/>
+          </label>
+          <label>
+           <input id="database-clear" type="checkbox"/>
+           Clear database URL override
+          </label>
+         </div>
+         <div>
+          <h3 class="form-section-title">
+           Supervisor &amp; lifecycle
+          </h3>
+          <label>
+           Service timeout (seconds)
+           <input class="form-input" id="setting-service_timeout" max="3600" min="1" required="" type="number"/>
+          </label>
+          <label>
+           Readiness timeout (seconds)
+           <input class="form-input" id="setting-readiness_timeout" max="3600" min="1" required="" type="number"/>
+          </label>
+          <label>
+           Console job timeout (seconds)
+           <input class="form-input" id="setting-web_job_timeout" max="86400" min="1" required="" type="number"/>
+          </label>
+          <label>
+           Archive limit (bytes)
+           <input class="form-input" id="setting-web_transfer_limit" max="1099511627776" min="1024" required="" type="number"/>
+          </label>
+          <label>
+           <input id="setting-web_auto_start" type="checkbox"/>
+           Start BSM after console startup
+          </label>
+          <label>
+           <input id="setting-stop_bsm_with_supervisor" type="checkbox"/>
+           Stop BSM when the supervisor console stops
+          </label>
+          <p class="hint">
+           Requires the standard bsm-supervisor-console.service. Stop BSM before changing this setting. Console restarts stop BSM too; automatic startup controls whether it starts again.
+          </p>
+         </div>
+        </div>
+        <button class="action-button primary-button">
+         Save settings
+        </button>
+       </form>
+       <details>
+        <summary>
+         Storage paths and managed service
+        </summary>
+        <pre class="log" id="settings-paths"></pre>
+       </details>
+       <p class="hint">
+        Storage relocation and console listener/origin changes require host configuration so an incorrect change cannot strand this console.
+       </p>
+      </article>
+     </div>
+     <div class="console-page" hidden="" id="page-system">
+      <div class="grid two-columns">
+       <article class="panel">
+        <div class="panel-heading section-heading">
+         <span class="panel-icon">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="m12 3 9 5-9 5-9-5 9-5ZM3 8v9l9 5 9-5V8M12 13v9M8 5l9 5"></path>
+          </svg>
+         </span>
+         <h2>
+          Supervisor updates
+         </h2>
+        </div>
+        <p id="supervisor-version"></p>
+        <button class="action-button" data-admin-action="supervisor-check">
+         Check releases
+        </button>
+        <label>
+         Release tag, branch or commit
+         <input class="form-input" id="supervisor-ref" placeholder="v0.1.0b1" value="latest"/>
+        </label>
+        <p class="hint">
+         latest selects a stable release. Choose an explicit beta tag or dev for prerelease builds. Updates may stop and restart BSM.
+        </p>
+        <label>
+         GitHub token (private repository only)
+         <input autocomplete="off" class="form-input" id="github-token" type="password"/>
+        </label>
+        <div class="buttons">
+         <button class="action-button" id="supervisor-update">
+          Update supervisor
+         </button>
+         <button class="action-button" id="supervisor-resume">
+          Resume update
+         </button>
+         <button class="action-button" data-admin-action="console-restart">
+          Restart console
+         </button>
+        </div>
+        <p class="hint">
+         Finish jobs before restarting the console. After updating, restart the console to load its new code, then reload and reconnect. Custom service units require a host restart command.
+        </p>
+       </article>
+       <article class="panel">
+        <div class="panel-heading section-heading">
+         <span class="panel-icon">
+          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+           <path d="M4 7h16M4 17h16"></path>
+           <circle cx="9" cy="7" r="3"></circle>
+           <circle cx="15" cy="17" r="3"></circle>
+          </svg>
+         </span>
+         <h2>
+          Diagnostics &amp; cleanup
+         </h2>
+        </div>
+        <div class="buttons">
+         <button class="action-button" data-admin-action="doctor">
+          Run diagnostics
+         </button>
+         <button class="action-button" data-admin-action="unit-refresh">
+          Refresh managed unit
+         </button>
+         <button class="action-button" id="diagnostics-download">
+          Download last report
+         </button>
+        </div>
+        <label>
+         Registered installation
+         <select class="form-input" id="remove-installation"></select>
+        </label>
+        <button class="action-button danger-button" id="installation-remove">
+         Remove unused installation
+        </button>
+        <label>
+         Restore operation ID
+         <input class="form-input" id="restore-cleanup-id" min="1" type="number"/>
+        </label>
+        <button class="action-button danger-button" id="restore-cleanup">
+         Discard retained originals
+        </button>
+        <p class="hint">
+         Cleanup requires BSM to be stopped and the restore transaction to be resolved.
+        </p>
+       </article>
+      </div>
+     </div>
+     <article class="panel output-panel">
+      <div class="panel-heading section-heading">
+       <span class="panel-icon">
+        <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+         <path d="M8 3h10a2 2 0 0 1 2 2v16H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2ZM8 7h8M8 11h8M8 15h5"></path>
+        </svg>
+       </span>
+       <h2>
+        Action output
+       </h2>
+      </div>
+      <p aria-live="polite" id="admin-progress" role="status">
+       Choose an action to see its result here. Operation history remains under Overview.
+      </p>
+      <pre class="log" id="admin-output"></pre>
+     </article>
+     <dialog aria-labelledby="restore-title" id="restore-dialog">
+      <h2 id="restore-title">
+       Restore BSM data
+      </h2>
+      <p>
+       This replaces saved database, configuration and data with the chosen checkpoint. Newer changes are discarded. A pinned recovery checkpoint will be captured first.
+      </p>
+      <pre class="log" id="restore-details"></pre>
+      <label>
+       <input checked="" disabled="" type="checkbox"/>
+       Full BSM data, including database and configuration
+      </label>
+      <p class="hint">
+       Partial database-only restoration is unsupported because it can leave configuration and server files inconsistent.
+      </p>
+      <label>
+       <input id="restore-confirm" type="checkbox"/>
+       I confirm downtime and replacement of current data, including BSM instances outside the managed service.
+      </label>
+      <label>
+       <input id="restore-restart" type="checkbox"/>
+       Start BSM after successful restoration
+      </label>
+      <div class="buttons">
+       <button class="action-button danger-button" id="restore-confirm-button">
+        Restore data
+       </button>
+       <button class="action-button" id="restore-cancel">
+        Cancel
+       </button>
+      </div>
+     </dialog>
+    </div>
+   </section>
+   <p id="error" role="alert" tabindex="-1"></p>
+   <footer>
+    AGPLv3 or later ·
+    <a href="https://github.com/DMedina559/bsm-supervisor">
+     Source code
+    </a>
+   </footer>
+  </main>
+ </body>
+</html>

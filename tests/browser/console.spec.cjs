@@ -98,3 +98,29 @@ test('lifecycle coupling can be configured separately from automatic startup',as
  expect((await payload).postDataJSON()).toMatchObject({action:'settings-save',settings:{stop_bsm_with_supervisor:true},confirmed:true});
  await expect(page.locator('#setting-web_auto_start')).toBeChecked();
 });
+
+test('workspace summaries and operation details reflect authenticated state',async({page})=>{
+ await page.route('**/api/state',route=>route.fulfill({json:{
+  service:{ActiveState:'active',SubState:'running',MainPID:'382',Result:'success'},
+  selection:{id:'release-4.0.0',version:'4.0.0'},installations:[],
+  checkpoints:[{id:'a'.repeat(32),total_bytes:1024}],
+  operations:[{id:8,action:'service:start',state:'running',detail:'Inspect the service before acknowledging.',started_at:'2026-10-17T12:00:00Z'}],jobs:[],schedules:[],supervisor:{version:'0.1.1.dev8'}
+ }}));
+ await login(page);
+ await expect(page.locator('#console-connection')).toHaveText('Connected');
+ await expect(page.locator('#summary-service')).toHaveText('Running');
+ await expect(page.locator('#summary-version')).toHaveText('4.0.0');
+ await expect(page.locator('#summary-backups')).toHaveText('1');
+ await expect(page.locator('#summary-attention')).toHaveText('1 to inspect');
+ await expect(page.locator('#sidebar-installation')).toHaveText('BSM 4.0.0');
+ const operation=page.locator('#operations details');
+ await expect(operation.locator('summary')).toContainText('Start BSM');
+ await expect(operation.locator('summary')).toContainText('Needs inspection');
+ await operation.locator('summary').click();await expect(operation).toContainText('Inspect the service before acknowledging.');
+ await page.locator('#refresh').click();await expect(operation).toHaveAttribute('open','');
+ await page.locator('[data-section="backups"]').click();
+ await expect(page.locator('#page-title')).toBeFocused();
+ await expect(page.locator('#breadcrumb-page')).toHaveText('Backups & restore');
+ await page.locator('#logout').click();await expect(page.locator('#console-connection')).toHaveText('Locked');
+ await expect(page.locator('#sidebar-installation')).toBeEmpty();
+});

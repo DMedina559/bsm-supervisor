@@ -4,6 +4,23 @@ The supervisor console runs independently of BSM. It remains available when the
 BSM service is stopped or fails. It manages one configured BSM instance and uses
 the same CLI locks, checkpoints, upgrade workflows, and recovery guards.
 
+## Workspace
+
+The console uses BSM frontend theme assets and branding, with sidebar navigation
+on desktop and a scrollable navigation bar on mobile. The header shows console
+connection status separately from the BSM service status.
+
+Overview summarizes the managed service, selected build, saved checkpoints and
+operations that need inspection. Expand an operation to inspect its full detail;
+expanded history entries stay open during refresh. Console jobs show a short ID,
+with the complete ID available on hover and in their logs. Service controls,
+version selection and recovery actions remain together under Overview.
+
+Backups & restore, Automation, Settings and Supervisor have dedicated workspaces.
+The breadcrumb and page description follow the selected workspace. All actions
+use the existing confirmation and recovery checks. Locking the console clears
+instance summaries and private form fields from the page.
+
 ## Install and start
 
 The LXC installer includes the web and encrypted-transfer dependencies. For a
