@@ -36,6 +36,7 @@ async function refresh() {
   try {
     const state = await request('state');
     if(currentSession!==session) return;
+    el('service').dataset.state=state.service.error ? 'unavailable' : state.service.ActiveState;
     el('service').textContent=state.service.error ? 'Service status unavailable: '+state.service.error : (state.service.ActiveState || 'unknown')+' · '+(state.service.SubState || 'unknown')+(state.service.MainPID && state.service.MainPID!=='0' ? ' · PID '+state.service.MainPID : '');
     el('autostart-summary').textContent=state.autostart?.reason || '';
     el('selected').textContent=state.selection ? 'Selected: '+state.selection.id+' · '+state.selection.version : 'No version selected';

@@ -35,3 +35,6 @@ footer { margin-top: 24px; font-size: 12px; }
 .hint { font-size: 12px; line-height: 1.6; }
 #notice:not(:empty), #error:not(:empty) { padding: 12px 16px; background: var(--bsm-surface); border: 1px solid var(--bsm-border); border-radius: var(--bsm-radius-md); }
 #operations, #jobs { max-height: 360px; overflow: auto; }
+
+.service-state[data-state="unavailable"], .service-state[data-state="failed"] { color: var(--bsm-danger); }
+.service-state[data-state="inactive"], .service-state[data-state="activating"] { color: var(--bsm-muted); }

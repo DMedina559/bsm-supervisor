@@ -137,9 +137,12 @@ class StartupTests(unittest.TestCase):
         self.selected()
         token = self.root / "token"
         web.token_create(token)
-        console = web.Console(
-            self.config, self.config_file, token, "http://127.0.0.1:11326"
-        )
+        with patch(
+            "bsm_supervisor.transfer.os.geteuid", return_value=self.operator_uid
+        ):
+            console = web.Console(
+                self.config, self.config_file, token, "http://127.0.0.1:11326"
+            )
         write_json(
             console.jobs / ("a" * 32 + ".json"),
             {"id": "a" * 32, "state": "interrupted"},
