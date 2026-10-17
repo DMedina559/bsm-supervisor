@@ -51,3 +51,6 @@ dialog::backdrop { background: var(--bsm-overlay); }
 #admin-output:empty { display: none; }
 
 p { overflow-wrap: anywhere; }
+
+.two-columns { align-items: start; }
+.stack { display: grid; gap: 16px; min-width: 0; align-content: start; }

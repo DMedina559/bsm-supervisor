@@ -7,6 +7,7 @@ function adminLock(){adminState.settings=null;adminState.settingsLoaded=false;ad
  for(const id of ['archive-password','notification-url','github-token','setting-bsm_db_url','archive-file'])field(id).value='';
  for(const id of ['backup-list','transfer-list','schedule-list','backup-preview','admin-output','admin-progress','settings-paths','settings-overrides','supervisor-version','notification-status','transfer-status','restore-details'])field(id).textContent='';
  for(const id of ['archive-checkpoint','upload-transfer','remove-installation'])field(id).replaceChildren();
+ field('backup-preview').textContent='Choose a checkpoint to inspect its database, version and storage coverage.';field('admin-progress').textContent='Choose an action to see its result here.';
  field('settings-form').reset();field('notification-form').reset();field('schedule-form').reset();field('restore-dialog').close();chooseSection('overview');
 }
 function updateAdminButtons(){const blocked=submitting || !!field('jobs').querySelector('[data-running]');document.querySelectorAll('.console-page button, [data-admin-action]').forEach(button=>{if(!button.hasAttribute('data-recovery-ack'))button.disabled=['doctor','health','service-logs','supervisor-check'].includes(button.dataset.adminAction) ? submitting : blocked;});}
@@ -18,7 +19,7 @@ async function runAdmin(value){if(submitting)return;const activeSession=session;
 function confirmAdmin(action,extra={},message='Run '+action+'? Review downtime and any data changes before continuing.'){
  if(!confirm(message))return;return runAdmin({action,confirmed:true,...extra});
 }
-function chooseSection(name){document.querySelectorAll('.console-page').forEach(page=>{page.hidden=page.id!=='page-'+name;});document.querySelectorAll('[data-section]').forEach(button=>{if(button.dataset.section===name)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});}
+function chooseSection(name){field('page-title').textContent=({overview:'Overview',backups:'Backups & restore',automation:'Automation',settings:'Settings',system:'Supervisor'})[name];document.querySelectorAll('.console-page').forEach(page=>{page.hidden=page.id!=='page-'+name;});document.querySelectorAll('[data-section]').forEach(button=>{if(button.dataset.section===name)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});}
 document.querySelectorAll('[data-section]').forEach(button=>button.onclick=()=>chooseSection(button.dataset.section));
 function smallButton(label,callback){const button=document.createElement('button');button.className='action-button';button.textContent=label;button.type='button';button.onclick=callback;return button;}
 function renderAdmin(state){
