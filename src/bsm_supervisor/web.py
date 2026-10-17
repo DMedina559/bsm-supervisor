@@ -18,7 +18,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from . import checkpoints, events, scheduling
+from packaging.version import InvalidVersion, Version
+
+from . import autostart, checkpoints, events, scheduling
 from .activation import selection
 from .checkpoint_files import read_json, write_json
 from .config import Config
@@ -28,6 +30,17 @@ from .store import BusyError, Store
 from .transfer import private_secret
 
 ASSETS = Path(__file__).parent / "assets"
+STATIC_ASSETS = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/app.js": ("app.js", "text/javascript"),
+    "/style.css": ("style.css", "text/css"),
+    "/frontend/tokens.css": ("frontend/tokens.css", "text/css"),
+    "/frontend/base.css": ("frontend/base.css", "text/css"),
+    "/frontend/buttons.css": ("frontend/buttons.css", "text/css"),
+    "/frontend/forms.css": ("frontend/forms.css", "text/css"),
+    "/frontend/icon-192.png": ("frontend/icon-192.png", "image/png"),
+    "/frontend/favicon-96.png": ("frontend/favicon-96.png", "image/png"),
+}
 
 
 def token_create(path: Path) -> None:
@@ -50,12 +63,14 @@ def arguments(value: dict) -> list[str]:
     for flag in ("confirmed", "accept_migrations", "restore_data"):
         if flag in value and type(value[flag]) is not bool:
             raise ValueError("Confirmation fields must be booleans")
+    if action == "auto-start":
+        return [action]
     if action == "start":
-        return [action, "--wait"]
+        return [action]
     if action == "restart":
         if value.get("confirmed") is not True:
             raise ValueError("Confirm service downtime")
-        return [action, "--wait"]
+        return [action]
     if action in ("stop", "graceful-stop"):
         if value.get("confirmed") is not True:
             raise ValueError("Confirm service downtime")
@@ -65,12 +80,25 @@ def arguments(value: dict) -> list[str]:
             raise ValueError("Confirm BSM is stopped, including outside systemd")
         return [action, "--offline-confirmed"]
     target = value.get("target", "")
+    if isinstance(target, str):
+        target = target.strip()
     if not isinstance(target, str) or not re.fullmatch(
         r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", target
     ):
         raise ValueError(
             "Select a valid version, installation, checkpoint or operation"
         )
+    if action in ("install", "upgrade"):
+        if target.lower() in ("stable", "prerelease"):
+            target = target.lower()
+        else:
+            try:
+                target = str(Version(target))
+            except InvalidVersion as exc:
+                raise ValueError(
+                    "Choose stable, prerelease, or an exact version such as 4.0.0b7. "
+                    "Use Select while stopped for registered installation IDs."
+                ) from exc
     if action in ("install", "checkpoint-verify", "restore-plan"):
         return [action, target]
     if value.get("confirmed") is not True:
@@ -117,6 +145,10 @@ class Console:
         self.config_path = config_path.resolve()
         self.token_file = token_file
         self.origin = origin
+        self.auto_start = {
+            "state": "waiting",
+            "reason": "Waiting for console listener readiness",
+        }
         self.lock = threading.Lock()
         self.jobs = config.state_dir / "web-jobs"
         self.jobs.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -134,6 +166,7 @@ class Console:
             status = {"error": type(exc).__name__}
         return {
             "service": status,
+            "autostart": self.auto_start,
             "selection": selection(self.config, store),
             "installations": store.installations(),
             "operations": store.operations(),
@@ -249,6 +282,9 @@ class Console:
                     stream.write(b"\n[Console output truncated at 8 MiB]\n")
                 stream.flush()
                 os.fsync(stream.fileno())
+            if job["action"] == "auto-start":
+                report = read_json(log)
+                self.auto_start = {"state": report["state"], "reason": report["reason"]}
             job.update(state="succeeded" if code == 0 else "failed", exit_code=code)
         except BaseException:
             if process is not None:
@@ -291,12 +327,8 @@ class Console:
         try:
             if headers.get("host", "").lower() != urlsplit(self.origin).netloc.lower():
                 status = 400
-            elif path in ("/", "/app.js", "/style.css") and method == "GET":
-                name, media = {
-                    "/": ("index.html", "text/html; charset=utf-8"),
-                    "/app.js": ("app.js", "text/javascript"),
-                    "/style.css": ("style.css", "text/css"),
-                }[path]
+            elif method == "GET" and path in STATIC_ASSETS:
+                name, media = STATIC_ASSETS[path]
                 body = (ASSETS / name).read_bytes()
             elif path.startswith("/api/"):
                 credential = headers.get("authorization", "").removeprefix("Bearer ")
@@ -397,17 +429,43 @@ def serve(
         raise ValueError(
             "A remote listener requires an explicit HTTPS reverse-proxy origin"
         )
-    uvicorn.run(
-        Console(config, config_path, token_file, origin),
-        host=host,
-        port=port,
-        workers=1,
-        proxy_headers=False,
-        access_log=False,
-        server_header=False,
-        lifespan="off",
-        limit_concurrency=32,
+    app = Console(config, config_path, token_file, origin)
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host=host,
+            port=port,
+            workers=1,
+            proxy_headers=False,
+            access_log=False,
+            server_header=False,
+            lifespan="off",
+            limit_concurrency=32,
+        )
     )
+    asyncio.run(run_server(server, app))
+
+
+async def start_after_ready(server, app: Console) -> None:
+    """Wait for Uvicorn to bind its socket before attempting automatic startup."""
+    while not server.started:
+        if server.should_exit:
+            return
+        await asyncio.sleep(0.05)
+    if not server.should_exit:
+        report = await asyncio.to_thread(autostart.attempt, app)
+        if app.auto_start.get("state") == "waiting":
+            app.auto_start = report
+
+
+async def run_server(server, app: Console) -> None:
+    """Keep console readiness independent of BSM startup and recovery outcomes."""
+    startup = asyncio.create_task(start_after_ready(server, app))
+    try:
+        await server.serve()
+    finally:
+        startup.cancel()
+        await asyncio.gather(startup, return_exceptions=True)
 
 
 def acknowledge(config: Config, store: Store, job_id: str) -> None:

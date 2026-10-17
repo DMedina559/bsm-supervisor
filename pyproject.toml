@@ -21,7 +21,7 @@ where = ["src"]
 version = {attr = "bsm_supervisor.__version__"}
 
 [tool.setuptools.package-data]
-bsm_supervisor = ["assets/*.html", "assets/*.js", "assets/*.css"]
+bsm_supervisor = ["assets/*.html", "assets/*.js", "assets/*.css", "assets/frontend/*"]
 
 [project.optional-dependencies]
 web = ["uvicorn>=0.32,<1"]

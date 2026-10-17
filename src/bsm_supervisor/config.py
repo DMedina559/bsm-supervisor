@@ -26,6 +26,7 @@ class Config:
     bsm_db_url: str | None = None
     bsm_log_level: str | None = None
     web_job_timeout: int = 3600
+    web_auto_start: bool = True
 
     @property
     def config_dir(self) -> Path:
@@ -60,6 +61,8 @@ class Config:
             "NOTSET",
         ):
             raise ValueError("Invalid BSM log level")
+        if type(self.web_auto_start) is not bool:
+            raise ValueError("web_auto_start must be a boolean")
         if (
             type(self.web_job_timeout) is not int
             or not 1 <= self.web_job_timeout <= 86400
@@ -116,6 +119,7 @@ class Config:
             "service_unit",
             "service_timeout",
             "web_job_timeout",
+            "web_auto_start",
             "bsm_config_dir",
             "checkpoint_paths",
             "api_token_file",

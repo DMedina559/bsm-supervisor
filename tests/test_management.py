@@ -198,7 +198,7 @@ class ManagementTests(unittest.TestCase):
         self.assertEqual(self.request("/api/jobs/../../token")[0], 404)
 
     def test_actions_require_separate_downtime_and_data_confirmation(self):
-        self.assertEqual(web.arguments({"action": "start"}), ["start", "--wait"])
+        self.assertEqual(web.arguments({"action": "start"}), ["start"])
         for value in (
             {"action": "stop"},
             {"action": "upgrade", "target": "stable", "confirmed": True},

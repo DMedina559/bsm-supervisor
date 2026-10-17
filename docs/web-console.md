@@ -58,7 +58,7 @@ old token are rejected without restarting the console.
 ## Actions and recovery
 
 The console provides version/channel installation, offline selection, upgrades,
-start/restart with readiness checks, graceful stop, checkpoint creation,
+start/restart with managed-process checks, graceful stop, checkpoint creation,
 verification, restore inspection, and explicit data restoration. It also shows
 service state, operations, upgrade workflows, scheduled runs, and progress.
 Checkpoint creation does not stop BSM automatically; stop it first. Upgrade
@@ -117,3 +117,42 @@ supervisor.example.com {
 
 Keep the console bound to loopback for this arrangement. The proxy preserves the
 Host header; forwarded identity headers are ignored by the console.
+
+## Automatic BSM startup
+
+After the console listener is ready, the supervisor attempts to start the selected
+BSM installation once. An already running service is left running. Missing
+installations, pending operations, interrupted console jobs, recovery markers, and
+unfinished supervisor updates prevent automatic startup; the console remains
+available for inspection and recovery. Startup never installs or selects a version.
+
+Set `web_auto_start = false` in the supervisor configuration to disable this
+behavior, then restart the console service. This is a startup action, not a
+watchdog: manually stopping BSM leaves it stopped until another start request or
+a console restart.
+
+Console Start and Restart confirm that the managed process is running. They do
+not require a BSM API bearer token. Use `bsm-supervisor health` or CLI `start --wait`
+for authenticated application readiness. Older BSM releases may require
+`api_token_file` for those checks; creating a BSM user remains part of BSM setup.
+A successful process start does not guarantee application readiness.
+
+The console bundles the BSM frontend theme and branded icons for offline use.
+The pinned source revision and file hashes are recorded in
+`assets/frontend/SOURCE.json`; the assets retain their MIT license.
+
+### A previous readiness check blocked further actions
+
+A failed or interrupted start can leave an operation pending even while BSM is
+running. Review `bsm-supervisor history`, `bsm-supervisor status`, and the service
+journal. If the only failure was a missing readiness credential and the managed
+service state is understood, acknowledge that operation explicitly:
+
+```sh
+bsm-supervisor acknowledge OPERATION_ID --service-checked
+```
+
+This clears the operation guard without restarting BSM or claiming application
+readiness. An interrupted console job has a separate acknowledgement described
+above. Do not acknowledge migration or restore failures without completing the
+corresponding recovery procedure.

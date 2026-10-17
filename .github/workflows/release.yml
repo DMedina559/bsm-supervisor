@@ -36,6 +36,11 @@ jobs:
             exit 1
           fi
           printf 'tag=%s\nsha=%s\n' "$RELEASE_TAG" "$revision" >> "$GITHUB_OUTPUT"
+  browser:
+    needs: source
+    uses: ./.github/workflows/browser.yml
+    with:
+      ref: ${{ needs.source.outputs.sha }}
   dependencies:
     needs: source
     uses: ./.github/workflows/dependencies.yml
@@ -43,11 +48,26 @@ jobs:
       ref: ${{ needs.source.outputs.sha }}
   test:
     needs: source
-    uses: ./.github/workflows/build-test.yml
-    with:
-      ref: ${{ needs.source.outputs.sha }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install '.[dev,all]'
+      - run: python -m unittest discover -s tests -v
+      - run: python -m black --check src tests
+      - run: python -m isort --check-only src tests
+      - run: python -m flake8 src tests
+      - run: python -m mypy src
   release:
-    needs: [source, test, dependencies]
+    needs: [source, test, browser, dependencies]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,6 +100,25 @@ jobs:
           path.write_text(content)
           PY
       - run: python -m build
+      - name: Verify packaged console assets and version
+        env:
+          RELEASE_TAG: ${{ needs.source.outputs.tag }}
+        run: |
+          python -m venv /tmp/release-check
+          /tmp/release-check/bin/pip install dist/*.whl
+          /tmp/release-check/bin/python - <<'PY'
+          import os
+          from importlib.metadata import version
+          from pathlib import Path
+          import bsm_supervisor
+          assert version('bsm-supervisor') == os.environ['RELEASE_TAG'][1:]
+          for name in ('index.html', 'app.js', 'style.css',
+                       'frontend/tokens.css', 'frontend/base.css',
+                       'frontend/buttons.css', 'frontend/forms.css',
+                       'frontend/icon-192.png', 'frontend/favicon-96.png',
+                       'frontend/LICENSE', 'frontend/SOURCE.json'):
+              assert (Path(bsm_supervisor.__file__).parent / 'assets' / name).is_file()
+          PY
       - name: Create pinned bootstrap assets and checksums
         env:
           RELEASE_TAG: ${{ needs.source.outputs.tag }}

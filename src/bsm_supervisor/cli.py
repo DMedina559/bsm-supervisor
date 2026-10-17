@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 
 from . import (
+    autostart,
     checkpoints,
     cleanup,
     diagnostics,
@@ -45,6 +46,7 @@ def parser() -> argparse.ArgumentParser:
     )
     commands = root.add_subparsers(dest="command", required=True)
     for name in (
+        "auto-start",
         "check",
         "integration",
         "checkpoints",
@@ -267,7 +269,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(SystemdService(config).status(), indent=2))
             return 0
         store = Store(config.state_dir)
-        if args.command == "checkpoint-export":
+        if args.command == "auto-start":
+            print(json.dumps(autostart.start(config, store), indent=2))
+        elif args.command == "checkpoint-export":
             print(
                 json.dumps(
                     transfer.export_checkpoint(

@@ -37,3 +37,23 @@ test('HTTPS proxy origin preserves authenticated access',async({page})=>{
  await page.goto('https://supervisor.example/');await page.locator('#token').fill(credential);await page.locator('#login button').click();
  await expect(page.locator('#console')).toBeVisible();await expect(page.locator('#selected')).toHaveText('No version selected');
 });
+
+test('bundled frontend branding and readable service state',async({page})=>{
+ await login(page);
+ const logo=page.locator('.brand img');
+ await expect(logo).toBeVisible();
+ expect(await logo.evaluate(img=>img.complete && img.naturalWidth===192)).toBeTruthy();
+ expect(await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--bsm-accent').trim())).toBe('#00ed95');
+ expect(await page.locator('[data-action="start"]').evaluate(button=>getComputedStyle(button).borderRadius)).toBe('10px');
+ await expect(page.locator('#service')).not.toContainText('ActiveState');
+ await page.screenshot({path:test.info().outputPath('console.png'),fullPage:true});
+});
+
+test('invalid installation IDs receive actionable validation without queued jobs',async({page})=>{
+ await login(page);
+ await page.locator('#version').fill('release-4.0.0b7');
+ await page.locator('[data-action="install"]').click();
+ await expect(page.locator('#error')).toContainText('Choose stable, prerelease, or an exact version');
+ await expect(page.locator('#error')).toContainText('Select while stopped');
+ await expect(page.locator('#jobs details')).toHaveCount(0);
+});
