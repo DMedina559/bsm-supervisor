@@ -42,8 +42,10 @@ pct_call() { (umask 022; pct "$@"); }
 bash "$source_dir/scripts/provision-proxmox.sh" --ctid "$ctid" \
     --source-dir "$source_dir" --storage "$storage" --template-storage "$template_storage"
 # Copy only package inputs; no checkout credentials, local data or virtualenvs.
+python3 "$source_dir/scripts/archive-version.py" "$source_dir" "$work/.git_archival.txt"
 tar -C "$source_dir" -czf "$work/source.tar.gz" \
-    src scripts pyproject.toml README.md LICENSE config.example.toml
+    src scripts pyproject.toml README.md LICENSE config.example.toml \
+    -C "$work" .git_archival.txt
 pct_call push "$ctid" "$work/source.tar.gz" /root/bsm-validation-source.tar.gz
 pct_call exec "$ctid" -- mkdir -p /root/bsm-validation-source
 pct_call exec "$ctid" -- tar -xzf /root/bsm-validation-source.tar.gz -C /root/bsm-validation-source

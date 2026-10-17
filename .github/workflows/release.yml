@@ -55,6 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           ref: ${{ needs.source.outputs.sha }}
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -86,18 +87,23 @@ jobs:
           RELEASE_TAG: ${{ needs.source.outputs.tag }}
         run: |
           python - <<'PY'
-          import os, re
+          import os, re, tomllib
           from pathlib import Path
           from packaging.version import Version
           tag = os.environ['RELEASE_TAG']
           version = str(Version(tag.removeprefix('v')))
           if tag != 'v' + version:
               raise SystemExit('Use a normalized Python version tag such as v0.1.0b1')
-          path = Path('src/bsm_supervisor/__init__.py')
-          content, count = re.subn(r'^__version__ = "[^\"]+"$', f'__version__ = "{version}"', path.read_text(), count=1, flags=re.MULTILINE)
-          if count != 1:
-              raise SystemExit('Missing package version declaration')
-          path.write_text(content)
+          with open(os.environ['GITHUB_ENV'], 'a') as stream:
+              stream.write('SETUPTOOLS_SCM_PRETEND_VERSION_FOR_BSM_SUPERVISOR=' + version + '\n')
+          project = tomllib.loads(Path('pyproject.toml').read_text())
+          if 'setuptools_scm' not in project.get('tool', {}):
+              # Preserve repair builds of releases predating SCM versioning.
+              path = Path('src/bsm_supervisor/__init__.py')
+              content, count = re.subn(r'^__version__ = "[^\"]+"$', f'__version__ = "{version}"', path.read_text(), count=1, flags=re.MULTILINE)
+              if count != 1:
+                  raise SystemExit('Missing package version declaration')
+              path.write_text(content)
           PY
       - run: python -m build
       - name: Verify packaged console assets and version
