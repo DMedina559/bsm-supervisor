@@ -2,7 +2,7 @@
 
 Installation, version management, updates, and recovery for [Bedrock Server Manager](https://github.com/DMedina559/bedrock-server-manager).
 
-**Status: early development.** The CLI supports PyPI release discovery, isolated environment installation, offline activation, service controls, and durable operation history. Checkpoints, application readiness, automated upgrades/recovery, and the web interface are not implemented yet.
+**Status: early development.** The CLI supports release discovery, isolated installation, offline activation, verified SQLite/filesystem checkpoints, recoverable restoration, retention, and service controls. Application readiness, coordinated upgrades, deployment automation, Git sources, scheduling, and the web interface remain in scope for later milestones.
 
 ## Run the foundation
 
@@ -73,11 +73,25 @@ bsm-supervisor --config config.toml selection
 bsm-supervisor --config config.toml start
 ```
 
-Activation verifies that the service uses the supervisor's current/bin/python command, then atomically updates the current symlink. It does not start BSM or restore data. A rejected/uncertain activation remains in history and blocks mutations until inspected and acknowledged.
+Activation requires the current generated service, holds maintenance/runtime locks, and atomically updates the current symlink. It does not start BSM or restore data. A rejected/uncertain activation remains in history and blocks mutations until inspected and acknowledged.
 
-Before selecting a different version against existing data, establish schema compatibility and make a consistent backup covering configuration, databases, and external server directories. Version selection is not a data rollback. Automatic compatibility validation and checkpoint restoration are planned.
+Before selecting a different version against existing data, establish schema compatibility and make a consistent backup covering configuration, databases, and external server directories. Version selection is not a data rollback. Checkpoint restoration is available through the explicit commands below. Automatic version/schema compatibility validation is planned.
 
-Only supervisor commands share the operation lock. Do not concurrently start/restart the service through systemctl or BSM while activating a version. Offline confirmation is an explicit operator assertion covering processes outside systemd.
+The generated service acquires a shared maintenance lock before Python starts; offline supervisor operations hold it exclusively. This prevents a managed startup from migrating the database during capture, restore, or activation. Offline confirmation still covers unmanaged BSM processes, standalone CLI mutations, Minecraft processes, and other writers outside that service. Do not launch those during maintenance.
+
+If you generated a unit before checkpoint support was added, regenerate/review it and run systemctl daemon-reload before using activation or checkpoint commands. The service now uses /usr/bin/flock from util-linux, checks a persistent recovery marker before startup, and unsets BSM_DB_URL, BSM_DATA_DIR, and BSM_CONFIG_DIR environment overrides.
+
+## Checkpoints and recovery
+
+    bsm-supervisor --config config.toml integration
+    bsm-supervisor --config config.toml checkpoint-create --offline-confirmed
+    bsm-supervisor --config config.toml checkpoints
+    bsm-supervisor --config config.toml checkpoint-verify CHECKPOINT_ID
+    bsm-supervisor --config config.toml restore-plan CHECKPOINT_ID
+
+Checkpoints cover the declared BSM data/configuration roots and configured external directories. The inspector reads stored BSM paths and rejects incomplete coverage, unknown/uninitialized database layouts, and unsupported database backends. Capture requires a stopped managed service and an initialized local SQLite database.
+
+See [Checkpoint operations](docs/checkpoints.md) for restoration, interruption recovery, retention, supported filesystem metadata, and deployment limitations.
 
 ## Development checks
 
@@ -113,7 +127,7 @@ Normal operation will not require Proxmox credentials. Container provisioning is
 - Start, stop, and restart the managed BSM service.
 - Show installed and available versions, health, logs, and operation history.
 - Stage updates before interrupting the running installation.
-- Coordinate graceful shutdown and create consistent recovery checkpoints.
+- Coordinate graceful shutdown and integrate the implemented offline checkpoints.
 - Retain previous installations and support compatibility-aware recovery.
 - Provide an independent authenticated web interface and local CLI.
 - Offer explicit opt-in Git tag, commit, and branch installations.
@@ -167,7 +181,7 @@ Missing compatibility information must be treated as unknown, never assumed safe
 | 2. Installation and service control | Exact release discovery/install, isolated environments, systemd units, status/start/stop/restart | Installation failure preserves the current environment; intentional stops remain stopped; crash recovery is bounded; persistent paths remain intact |
 | 3. Updates and recovery | Staging, maintenance, checkpoints, atomic activation, readiness, interrupted-operation recovery | Exercise failed downloads, failed startup, incompatible data, concurrent requests, and restart during activation; never run two BSM instances against the same data |
 | 4. Independent interface | Authenticated API and recovery UI using BSM frontend styling | Status, logs, update progress, and recovery remain accessible while BSM is down; unauthorized mutations fail; credentials are redacted |
-| 5. Optional automation | Git sources, scheduled updates, maintenance windows, separate Proxmox provisioning | Exact commits are recorded; schedules are opt-in; installation inside an existing LXC needs no Proxmox token |
+| 5. Automation (in scope) | Git sources, scheduled updates, maintenance windows, separate Proxmox provisioning | Exact commits are recorded; schedules are opt-in; installation inside an existing LXC needs no Proxmox token |
 
 Each phase requires focused automated checks and an integration exercise appropriate to its behavior. Actual systemd and LXC behavior must be validated in a disposable Linux environment; mocked service tests alone do not establish deployment support.
 

@@ -6,9 +6,11 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from . import checkpoints, restoration
 from .activation import activate, selection, service_unit
 from .config import Config
 from .install import install
+from .integration import inspect as inspect_integration
 from .releases import ReleaseError, discover, select
 from .service import ServiceError, SystemdService
 from .store import BusyError, Store
@@ -23,6 +25,8 @@ def parser() -> argparse.ArgumentParser:
     commands = root.add_subparsers(dest="command", required=True)
     for name in (
         "check",
+        "integration",
+        "checkpoints",
         "init",
         "installations",
         "selection",
@@ -47,6 +51,29 @@ def parser() -> argparse.ArgumentParser:
         required=True,
         help="Confirm BSM is not running outside the configured unit",
     )
+    capture = commands.add_parser("checkpoint-create")
+    capture.add_argument("--offline-confirmed", action="store_true", required=True)
+    for name in ("checkpoint-verify", "restore-plan"):
+        command = commands.add_parser(name)
+        command.add_argument("id")
+    restore = commands.add_parser("checkpoint-restore")
+    restore.add_argument("id")
+    restore.add_argument("--offline-confirmed", action="store_true", required=True)
+    restore.add_argument("--restore-data-confirmed", action="store_true", required=True)
+    for name in ("restore-recover", "restore-cleanup"):
+        command = commands.add_parser(name)
+        command.add_argument("operation_id", type=int)
+        command.add_argument("--offline-confirmed", action="store_true", required=True)
+        if name == "restore-cleanup":
+            command.add_argument(
+                "--discard-originals", action="store_true", required=True
+            )
+    pin = commands.add_parser("checkpoint-pin")
+    pin.add_argument("id")
+    pin.add_argument("--unpin", action="store_true")
+    prune = commands.add_parser("checkpoint-prune")
+    prune.add_argument("--keep", type=int, default=3)
+    prune.add_argument("--delete-confirmed", action="store_true", required=True)
     unit = commands.add_parser("unit")
     unit.add_argument("--user", default="bsm")
     register = commands.add_parser("register")
@@ -67,6 +94,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "check":
             print("Configuration valid")
             return 0
+        if args.command == "integration":
+            report = inspect_integration(config)
+            print(json.dumps(report, indent=2))
+            return 0 if report["supported"] else 1
         if args.command == "unit":
             print(service_unit(config, args.user), end="")
             return 0
@@ -80,7 +111,52 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(SystemdService(config).status(), indent=2))
             return 0
         store = Store(config.state_dir)
-        if args.command == "init":
+        if args.command == "checkpoints":
+            print(json.dumps(checkpoints.list_checkpoints(config), indent=2))
+        elif args.command == "checkpoint-create":
+            manifest = checkpoints.create(config, store)
+            print(
+                json.dumps(
+                    {
+                        "id": manifest["id"],
+                        "created_at": manifest["created_at"],
+                        "total_bytes": manifest["total_bytes"],
+                    },
+                    indent=2,
+                )
+            )
+        elif args.command in ("checkpoint-verify", "restore-plan"):
+            manifest = checkpoints.verify(config, args.id)
+            print(
+                json.dumps(
+                    {
+                        "id": manifest["id"],
+                        "created_at": manifest["created_at"],
+                        "roots": [record["path"] for record in manifest["roots"]],
+                        "installation": manifest["installation"],
+                        "schema_revision": manifest["schema_revision"],
+                        "total_bytes": manifest["total_bytes"],
+                        "changes_version_selection": False,
+                        "effect": (
+                            "Replace saved root contents; discard newer data on restore"
+                        ),
+                    },
+                    indent=2,
+                )
+            )
+        elif args.command == "checkpoint-restore":
+            print(json.dumps(restoration.restore(config, store, args.id), indent=2))
+        elif args.command == "restore-recover":
+            print(restoration.recover(config, store, args.operation_id))
+        elif args.command == "restore-cleanup":
+            restoration.cleanup(config, store, args.operation_id)
+            print("Retained originals discarded")
+        elif args.command == "checkpoint-pin":
+            checkpoints.pin(config, store, args.id, not args.unpin)
+            print("Checkpoint pin updated")
+        elif args.command == "checkpoint-prune":
+            print(json.dumps(checkpoints.prune(config, store, args.keep), indent=2))
+        elif args.command == "init":
             print("Supervisor state initialized")
         elif args.command == "installations":
             print(json.dumps(store.installations(), indent=2))

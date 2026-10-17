@@ -41,7 +41,7 @@ class SystemdService:
                 "show",
                 self.unit,
                 "--property=LoadState,ActiveState,SubState,"
-                "MainPID,Result,ExecStart,Job",
+                "MainPID,Result,ExecStart,ExecCondition,Job,UnsetEnvironment",
             ]
         )
         values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
@@ -54,3 +54,15 @@ class SystemdService:
         if action not in ("start", "stop", "restart"):
             raise ValueError("Unsupported service action")
         self._run([action, self.unit])
+
+
+def managed_command(config: Config) -> str:
+    """Build the exact managed launch command, locking before Python imports BSM."""
+    python = config.installations_dir / "current/bin/python"
+    maintenance = config.config_dir / "supervisor-maintenance.lock"
+    return (
+        f"/usr/bin/flock --shared --nonblock --no-fork {maintenance} "
+        f"{python} -I -m bedrock_server_manager "
+        f"--config-dir {config.config_dir} --data-dir {config.data_dir} "
+        "web start --mode direct"
+    )

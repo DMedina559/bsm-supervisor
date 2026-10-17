@@ -5,7 +5,8 @@ import re
 import uuid
 
 from .config import Config
-from .service import SystemdService
+from .integration import offline_guard
+from .service import managed_command
 from .store import Store
 
 
@@ -14,17 +15,12 @@ def service_unit(config: Config, user: str) -> str:
     if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", user):
         raise ValueError("Invalid service account")
     # Restrict rendering instead of guessing systemd escaping for arbitrary paths.
-    for path in (config.installations_dir, config.data_dir):
+    for path in (config.installations_dir, config.data_dir, config.config_dir):
         if not re.fullmatch(r"/[A-Za-z0-9_./-]+", str(path)):
             raise ValueError(
                 "Unit rendering requires paths without spaces or special characters"
             )
-    python = config.installations_dir / "current/bin/python"
-    command = (
-        f"{python} -I -m bedrock_server_manager "
-        f"--config-dir {config.data_dir}/config --data-dir {config.data_dir} "
-        "web start --mode direct"
-    )
+    command = managed_command(config)
     return f"""[Unit]
 Description=Bedrock Server Manager (BSM Supervisor)
 After=network.target
@@ -35,12 +31,14 @@ StartLimitBurst=3
 Type=simple
 User={user}
 WorkingDirectory={config.data_dir}
+ExecCondition=/usr/bin/test ! -e {config.config_dir}/supervisor-recovery.required
 ExecStart={command}
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=180
 KillMode=control-group
 UMask=0077
+UnsetEnvironment=BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR
 
 [Install]
 WantedBy=multi-user.target
@@ -49,7 +47,10 @@ WantedBy=multi-user.target
 
 def activate(config: Config, store: Store, installation_id: str) -> None:
     """Atomically select a registered installation without starting BSM."""
-    with store.mutation("activate:" + installation_id, preserve_on_error=True):
+    with (
+        store.mutation("activate:" + installation_id, preserve_on_error=True),
+        offline_guard(config),
+    ):
         candidates = [
             item for item in store.installations() if item["id"] == installation_id
         ]
@@ -61,19 +62,7 @@ def activate(config: Config, store: Store, installation_id: str) -> None:
             raise ValueError("Installation path changed or is not a direct child")
         if not (target / "bin/python").is_file():
             raise ValueError("Registered environment has no Python executable")
-        status = SystemdService(config).status()
-        if (
-            status.get("ActiveState") != "inactive"
-            or status.get("MainPID") != "0"
-            or status.get("Job") != ""
-        ):
-            raise ValueError("Service must be inactive with no PID or pending job")
         current = config.installations_dir / "current"
-        executable = str(current / "bin/python")
-        if f"path={executable} ;" not in status.get("ExecStart", ""):
-            raise ValueError(
-                "Service must use the supervisor-generated current/bin/python command"
-            )
         if current.exists() and not current.is_symlink():
             raise ValueError("The current path is not a supervisor selection symlink")
         temporary = current.parent / (".selection-" + uuid.uuid4().hex)

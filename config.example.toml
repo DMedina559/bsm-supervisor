@@ -3,3 +3,11 @@ installations_dir = "/opt/bsm/installations"
 data_dir = "/srv/bsm"
 service_unit = "bedrock-server-manager-webui.service"
 service_timeout = 240
+
+# Optional: adopt a BSM configuration directory outside data_dir.
+# bsm_config_dir = "/etc/bedrock-server-manager"
+
+# Declare every external directory needed for recovery.
+# Directories contained by data_dir/config_dir are already included.
+checkpoint_paths = []
+# Example: checkpoint_paths = ["/mnt/bedrock-servers", "/mnt/bsm-content"]

@@ -16,6 +16,7 @@ from bsm_supervisor.releases import (
     discover,
     select,
 )
+from bsm_supervisor.service import managed_command
 from bsm_supervisor.store import BusyError, Store
 
 
@@ -75,6 +76,7 @@ class InstallationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
         self.config = Config(root / "state", root / "envs", root / "data")
+        self.config.config_dir.mkdir(parents=True)
         self.store = Store(self.config.state_dir)
 
     def fake_command(self, arguments, log):
@@ -142,15 +144,21 @@ class InstallationTests(unittest.TestCase):
         return target
 
     def stopped(self):
-        executable = self.config.installations_dir / "current/bin/python"
         return {
             "ActiveState": "inactive",
             "MainPID": "0",
             "Job": "",
-            "ExecStart": f"{{ path={executable} ; argv[]={executable} -I ; }}",
+            "UnsetEnvironment": "BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR",
+            "ExecCondition": (
+                "{ path=/usr/bin/test ; argv[]=/usr/bin/test ! -e "
+                f"{self.config.config_dir}/supervisor-recovery.required ; }}"
+            ),
+            "ExecStart": "{ path=/usr/bin/flock ; argv[]="
+            + managed_command(self.config)
+            + " ; }",
         }
 
-    @patch("bsm_supervisor.activation.SystemdService")
+    @patch("bsm_supervisor.integration.SystemdService")
     def test_offline_activation_is_atomic_and_does_not_start_service(self, service):
         target = self.registered()
         self.assertIsNone(selection(self.config, self.store))
@@ -162,7 +170,7 @@ class InstallationTests(unittest.TestCase):
         service.return_value.control.assert_not_called()
         self.assertEqual(self.store.operations()[0]["state"], "succeeded")
 
-    @patch("bsm_supervisor.activation.SystemdService")
+    @patch("bsm_supervisor.integration.SystemdService")
     def test_activation_refuses_running_queued_or_unmanaged_service(self, service):
         self.registered()
         for overrides in (

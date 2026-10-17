@@ -145,6 +145,12 @@ class Store:
         Call only while no other supervisor command is running.
         """
         with self.lock(), self.connect() as db:
+            row = db.execute(
+                "SELECT action FROM operations WHERE id = ? AND state = 'running'",
+                (operation_id,),
+            ).fetchone()
+            if row is not None and row["action"].startswith("checkpoint:restore:"):
+                raise ValueError("Use restore-recover for an interrupted data restore")
             result = db.execute(
                 """UPDATE operations SET state = 'acknowledged',
                 detail = 'Operator acknowledged interruption; no rollback performed',

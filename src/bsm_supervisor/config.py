@@ -15,6 +15,13 @@ class Config:
     data_dir: Path
     service_unit: str = "bedrock-server-manager-webui.service"
     service_timeout: int = 240
+    bsm_config_dir: Path | None = None
+    checkpoint_paths: tuple[Path, ...] = ()
+
+    @property
+    def config_dir(self) -> Path:
+        """Return BSM's explicit bootstrap/configuration directory."""
+        return self.bsm_config_dir or self.data_dir / "config"
 
     def __post_init__(self) -> None:
         paths = (self.state_dir, self.installations_dir, self.data_dir)
@@ -27,6 +34,19 @@ class Config:
                 if left == right or left in right.parents or right in left.parents:
                     raise ValueError(
                         "State, installations, and data paths must not overlap"
+                    )
+        for path in (self.config_dir, *self.checkpoint_paths):
+            if not path.is_absolute() or path.resolve() == Path("/"):
+                raise ValueError("Checkpoint paths must be absolute and not the root")
+            for private in (self.state_dir.resolve(), self.installations_dir.resolve()):
+                resolved_path = path.resolve()
+                if (
+                    private == resolved_path
+                    or private in resolved_path.parents
+                    or resolved_path in private.parents
+                ):
+                    raise ValueError(
+                        "Checkpoint paths must not overlap supervisor paths"
                     )
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*\.service", self.service_unit):
             raise ValueError("service_unit must be a plain systemd service name")
@@ -47,6 +67,8 @@ class Config:
             "data_dir",
             "service_unit",
             "service_timeout",
+            "bsm_config_dir",
+            "checkpoint_paths",
         }
         unknown = values.keys() - allowed
         if unknown:
@@ -58,6 +80,17 @@ class Config:
             if not isinstance(value, str) or not value:
                 raise ValueError(f"{key} must be a nonempty absolute path")
             values[key] = Path(value)
+        if "bsm_config_dir" in values:
+            if not isinstance(values["bsm_config_dir"], str):
+                raise ValueError("bsm_config_dir must be an absolute path")
+            values["bsm_config_dir"] = Path(values["bsm_config_dir"])
+        if "checkpoint_paths" in values:
+            paths = values["checkpoint_paths"]
+            if not isinstance(paths, list) or any(
+                not isinstance(path, str) or not path for path in paths
+            ):
+                raise ValueError("checkpoint_paths must be an array of absolute paths")
+            values["checkpoint_paths"] = tuple(Path(path) for path in paths)
         if "service_unit" in values and not isinstance(values["service_unit"], str):
             raise ValueError("service_unit must be a string")
         return cls(**values)
