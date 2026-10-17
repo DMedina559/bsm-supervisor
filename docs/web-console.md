@@ -88,8 +88,7 @@ The console unit runs as root because existing service management requires root.
 It is a trusted operator interface. Filesystem paths, detailed health reports,
 schedule editing, archive transfers, and supervisor self-updates remain CLI
 operations. Job logs and progress remain local until explicitly accessed; manage
-log retention according to available storage. There is no separate per-user
-role model in this initial console.
+log retention according to available storage. All authenticated console users have the same administrative permissions.
 
 The footer links to the project source. If deploying a modified network-facing
 version, provide users access to the corresponding source for that version as

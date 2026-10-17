@@ -99,10 +99,6 @@ python3 -m venv .venv
 
 CI covers Python 3.11 and 3.14, formatting, lint, type checking, and installer shell checks. Automated tests include filesystem/SQLite recovery and simulated service/provisioning boundaries. Validate startup, shutdown, networking, mounts, and recovery in a disposable container before relying on a deployment.
 
-## License
-
-See [LICENSE](LICENSE).
-
 ## Console, automation, and external recovery copies
 
 - [Independent web console](docs/web-console.md): service/version management and recovery while BSM is down.
@@ -110,6 +106,7 @@ See [LICENSE](LICENSE).
 - [Checkpoint transfer](docs/checkpoint-transfer.md): verified archives, optional encryption, and off-host storage.
 - [Supervisor releases](docs/releases.md): tagged packages, pinned bootstrap assets, and generated release notes.
 
-The supervisor license is AGPL-3.0-only. These additions remain early development;
-run the [disposable Proxmox validation](docs/validation.md) before relying on a new
-release for a production deployment.
+## License
+
+Licensed under the GNU Affero General Public License, version 3 or (at your
+option) any later version (`AGPL-3.0-or-later`). See [LICENSE](LICENSE).

@@ -2,7 +2,7 @@
 
 The supervisor can prepare a published BSM release, gracefully shut down the current runtime, capture and pin a checkpoint, activate the release, and require authenticated application readiness.
 
-This workflow targets the BSM 4.0 runtime with an initialized SQLite database and fully declared filesystem coverage. It uses existing backend HTTP contracts and does not require backend changes. Automated schema compatibility negotiation is still unavailable; accepting an upgrade authorizes the selected release's forward migrations.
+This workflow targets the BSM 4.0 runtime with an initialized SQLite database and fully declared filesystem coverage. Accepting an upgrade authorizes the selected release's forward migrations; schema compatibility is not negotiated automatically.
 
 ## Configure readiness and startup control
 
@@ -26,9 +26,8 @@ Older BSM versions require a private file containing a user bearer token:
 Set permissions to 0600. The token needs access to `GET /api/health`; a dedicated
 ordinary BSM user can supply readiness access. Complete first-user setup before
 creating this token. Check `health` before maintenance to verify compatibility
-and authentication. New local readiness support is developed on the backend
-`feat/local-runtime-readiness` branch; older published releases still need the
-user token until that feature is released.
+and authentication. BSM versions without local readiness credentials require
+the user token.
 
 Graceful shutdown uses the separate private shutdown credential. Tokens are
 never included in workflow journals, CLI output, or request errors. Requests use
