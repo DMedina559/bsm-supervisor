@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bsm-supervisor"
+version = "0.1.0.dev0"
+description = "Installation and service supervision for Bedrock Server Manager"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
+dependencies = []
+
+[project.scripts]
+bsm-supervisor = "bsm_supervisor.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

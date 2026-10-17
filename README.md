@@ -2,7 +2,54 @@
 
 Installation, version management, updates, and recovery for [Bedrock Server Manager](https://github.com/DMedina559/bedrock-server-manager).
 
-**Status: planning.** This repository currently defines the project scope and implementation order. No supervisor, installer, CLI, or web interface is available yet.
+**Status: early development.** The local CLI, validated configuration, durable installation registry, operation journal, and systemd adapter are implemented. Downloading releases, creating environments, activation, checkpoints, recovery automation, and the web interface are not implemented yet.
+
+## Run the foundation
+
+Requires Linux and Python 3.11 or newer. systemd commands require an existing BSM service and permission to control that specific unit. The supervisor does not install units, create service accounts, or grant privileges yet.
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+cp config.example.toml config.toml
+# Edit config.toml to use three separate absolute directories.
+.venv/bin/bsm-supervisor --config config.toml check
+.venv/bin/bsm-supervisor --config config.toml init
+.venv/bin/bsm-supervisor --config config.toml installations
+.venv/bin/bsm-supervisor --config config.toml history
+.venv/bin/bsm-supervisor --config config.toml status
+```
+
+Configuration validation does not create directories. Initialization creates the state directory and SQLite database; it does not touch BSM data. Run all commands under the same trusted operator account with exclusive write access to the configured directories.
+
+An existing virtual environment can be inventoried without executing or activating it:
+
+```sh
+.venv/bin/bsm-supervisor --config config.toml register release-4.0.0b7 \
+  --version 4.0.0b7 --path /opt/bsm/installations/release-4.0.0b7
+```
+
+The supplied version is operator-provided metadata, not a verified package version. Registration requires a directory below installations_dir containing pyvenv.cfg and bin/bedrock-server-manager.
+
+The start, stop, and restart commands operate on the configured existing systemd unit. They do not select a registered installation. A successful command means systemd completed its job; application readiness is not checked yet. Stop and restart follow the existing unit's shutdown behavior; coordinated Minecraft maintenance is not implemented. Use these commands only after checking that unit's shutdown behavior.
+
+Mutations use a process lock and persistent journal. A failed service command conservatively leaves an unresolved operation because its final effect may be unknown. After checking the actual service state and ensuring no supervisor command is running, clear an interrupted operation with:
+
+```sh
+.venv/bin/bsm-supervisor --config config.toml acknowledge 1 --service-checked
+```
+
+Replace 1 with the operation ID from history. Acknowledgement only clears the block; it does not restore data, cancel a systemd job, or retry an operation. Automatic reconciliation is planned.
+
+## Development checks
+
+```sh
+python -m pip install .
+python -m unittest discover -s tests -v
+bsm-supervisor --help
+```
+
+CI tests Python 3.11 and 3.14. Service tests use a mocked command boundary; deployment in an actual LXC remains to be validated.
 
 ## Scope
 
@@ -89,3 +136,4 @@ Multi-instance orchestration, Minecraft server management outside BSM, Docker ma
 ## License
 
 See [LICENSE](LICENSE).
+
