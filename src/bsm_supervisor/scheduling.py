@@ -17,6 +17,8 @@ from .releases import discover, select
 from .service import SystemdService
 from .store import Store
 
+UNIT_DIRECTORY = Path("/etc/systemd/system")
+
 ACTIONS = (
     "check-updates",
     "checkpoint",
@@ -175,7 +177,14 @@ WantedBy=timers.target
     return service, timer
 
 
-def install(config: Config, config_path: Path, store: Store, source: Path) -> dict:
+def install(
+    config: Config,
+    config_path: Path,
+    store: Store,
+    source: Path,
+    *,
+    replace_existing: bool = False,
+) -> dict:
     """Install owned units, preserving existing foreign units and policies."""
     value = policy(read_json(source))
     if os.geteuid() != 0:
@@ -189,25 +198,67 @@ def install(config: Config, config_path: Path, store: Store, source: Path) -> di
     service, timer = units(config_path.resolve(), value)
     name = "bsm-supervisor-schedule-" + value["name"]
     folder = config.state_dir / "schedules"
-    with store.mutation("schedule:install:" + value["name"]):
+    with store.lock():
+        store.require_idle()
         folder.mkdir(mode=0o700, exist_ok=True)
         for suffix in ("service", "timer"):
-            path = Path("/etc/systemd/system") / (name + "." + suffix)
-            if path.is_symlink() or path.exists():
-                raise ValueError(
-                    "Schedule units already exist; remove the schedule before "
-                    "replacing it"
+            path = UNIT_DIRECTORY / (name + "." + suffix)
+            if path.is_symlink():
+                raise ValueError("Schedule units must not be symlinks")
+            if path.exists():
+                marker = "schedule" if suffix == "service" else "timer"
+                if (
+                    not replace_existing
+                    or f"Description=BSM Supervisor {marker} {value['name']}\n"
+                    not in path.read_text()
+                ):
+                    raise ValueError(
+                        "Schedule already exists or is not supervisor-owned"
+                    )
+        if replace_existing and (folder / (value["name"] + ".json")).exists():
+            state = subprocess.run(
+                [
+                    "systemctl",
+                    "show",
+                    name + ".service",
+                    "--property=ActiveState",
+                    "--value",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            ).stdout.strip()
+            if state not in ("inactive", "failed", ""):
+                raise ValueError("Wait for the scheduled job to finish before editing")
+        with store.mutation(
+            "schedule:install:" + value["name"], preserve_on_error=True
+        ):
+            if replace_existing and (folder / (value["name"] + ".json")).exists():
+                write_json(
+                    folder / (value["name"] + ".previous"),
+                    read_json(folder / (value["name"] + ".json")),
                 )
-        write_json(folder / (value["name"] + ".json"), value)
-        for suffix, content in (("service", service), ("timer", timer)):
-            target = Path("/etc/systemd/system") / (name + "." + suffix)
-            with target.open("x") as stream:
-                stream.write(content)
-            target.chmod(0o644)
-        subprocess.run(["systemctl", "daemon-reload"], check=True, timeout=30)
-        subprocess.run(
-            ["systemctl", "enable", "--now", name + ".timer"], check=True, timeout=30
-        )
+                subprocess.run(
+                    ["systemctl", "stop", name + ".timer"], check=True, timeout=30
+                )
+            write_json(folder / (value["name"] + ".json"), value)
+            for suffix, content in (("service", service), ("timer", timer)):
+                target = UNIT_DIRECTORY / (name + "." + suffix)
+                if replace_existing:
+                    from .unit_refresh import publish
+
+                    publish(target, content.encode(), 0o644)
+                else:
+                    with target.open("x") as stream:
+                        stream.write(content)
+                    target.chmod(0o644)
+            subprocess.run(["systemctl", "daemon-reload"], check=True, timeout=30)
+            subprocess.run(
+                ["systemctl", "enable", "--now", name + ".timer"],
+                check=True,
+                timeout=30,
+            )
     return {"name": value["name"], "enabled": True}
 
 
@@ -386,7 +437,7 @@ def remove(config: Config, store: Store, name: str) -> None:
     unit_name = "bsm-supervisor-schedule-" + name
     with store.mutation("schedule:remove:" + name):
         for suffix, marker in (("service", "schedule"), ("timer", "timer")):
-            path = Path("/etc/systemd/system") / (unit_name + "." + suffix)
+            path = UNIT_DIRECTORY / (unit_name + "." + suffix)
             if path.is_symlink() or (
                 path.exists()
                 and f"Description=BSM Supervisor {marker} {name}\n"
@@ -414,8 +465,6 @@ def remove(config: Config, store: Store, name: str) -> None:
             timeout=30,
         )
         for suffix in ("service", "timer"):
-            (Path("/etc/systemd/system") / (unit_name + "." + suffix)).unlink(
-                missing_ok=True
-            )
+            (UNIT_DIRECTORY / (unit_name + "." + suffix)).unlink(missing_ok=True)
         (config.state_dir / "schedules" / (name + ".json")).unlink(missing_ok=True)
         subprocess.run(["systemctl", "daemon-reload"], check=True, timeout=30)

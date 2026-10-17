@@ -20,7 +20,15 @@ from uuid import uuid4
 
 from packaging.version import InvalidVersion, Version
 
-from . import autostart, checkpoints, events, scheduling
+from . import (
+    autostart,
+    checkpoints,
+    console_admin,
+    console_transfers,
+    events,
+    scheduling,
+    self_update,
+)
 from .activation import selection
 from .checkpoint_files import read_json, write_json
 from .config import Config
@@ -33,6 +41,7 @@ ASSETS = Path(__file__).parent / "assets"
 STATIC_ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript"),
+    "/admin.js": ("admin.js", "text/javascript"),
     "/style.css": ("style.css", "text/css"),
     "/frontend/tokens.css": ("frontend/tokens.css", "text/css"),
     "/frontend/base.css": ("frontend/base.css", "text/css"),
@@ -57,6 +66,9 @@ def token_create(path: Path) -> None:
 def arguments(value: dict) -> list[str]:
     """Translate typed, allowlisted requests into CLI arguments without a shell."""
     action = value.get("action")
+    if isinstance(action, str) and action in console_admin.SCHEMAS:
+        console_admin.validate(value)
+        return ["console-task"]
     fields = {"action", "target", "confirmed", "accept_migrations", "restore_data"}
     if value.keys() - fields or not isinstance(action, str):
         raise ValueError("Invalid action fields")
@@ -71,6 +83,25 @@ def arguments(value: dict) -> list[str]:
         if value.get("confirmed") is not True:
             raise ValueError("Confirm service downtime")
         return [action]
+    if action == "installation-remove":
+        target = value.get("target", "")
+        if (
+            not isinstance(target, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", target)
+            or value.get("confirmed") is not True
+        ):
+            raise ValueError("Confirm deletion of a registered installation")
+        return [action, target, "--offline-confirmed", "--delete-confirmed"]
+    if action == "restore-cleanup":
+        target = value.get("target", "")
+        if (
+            not isinstance(target, str)
+            or not target.isascii()
+            or not target.isdecimal()
+            or value.get("confirmed") is not True
+        ):
+            raise ValueError("Confirm deletion of retained restore originals")
+        return [action, target, "--offline-confirmed", "--discard-originals"]
     if action in ("stop", "graceful-stop"):
         if value.get("confirmed") is not True:
             raise ValueError("Confirm service downtime")
@@ -111,6 +142,17 @@ def arguments(value: dict) -> list[str]:
         return [action, target, "--offline-confirmed", "--restore-data-confirmed"]
     if action == "acknowledge" and target.isdecimal():
         return [action, target, "--service-checked"]
+    if action in ("upgrade-cancel", "upgrade-restore") and target.isdecimal():
+        if action == "upgrade-restore" and value.get("restore_data") is not True:
+            raise ValueError("Confirm data replacement before upgrade restoration")
+        return [
+            "upgrade-recover",
+            target,
+            "--maintenance-confirmed",
+            "--action",
+            "cancel" if action == "upgrade-cancel" else "restore",
+            *(["--restore-data-confirmed"] if action == "upgrade-restore" else []),
+        ]
     if action == "upgrade-resume" and target.isdecimal():
         return [
             "upgrade-recover",
@@ -145,6 +187,7 @@ class Console:
         self.config_path = config_path.resolve()
         self.token_file = token_file
         self.origin = origin
+        self.transfer_lock = threading.Lock()
         self.auto_start = {
             "state": "waiting",
             "reason": "Waiting for console listener readiness",
@@ -155,6 +198,8 @@ class Console:
         Store(config.state_dir)
 
     def snapshot(self) -> dict:
+        if self.config_path.is_file():
+            self.config = Config.load(self.config_path)
         store = Store(self.config.state_dir)
         try:
             status: dict = SystemdService(self.config).status()
@@ -167,6 +212,9 @@ class Console:
         return {
             "service": status,
             "autostart": self.auto_start,
+            "settings": console_admin.settings(self.config),
+            "supervisor": self_update.information(),
+            "transfers": console_transfers.listing(self.config),
             "selection": selection(self.config, store),
             "installations": store.installations(),
             "operations": store.operations(),
@@ -185,7 +233,7 @@ class Console:
         if not self.lock.acquire(blocking=False):
             raise BusyError("Another console action is running")
         try:
-            if any(
+            if value["action"] not in console_admin.READ_ONLY and any(
                 read_json(path).get("state") in ("running", "interrupted")
                 for path in self.jobs.glob("*.json")
             ):
@@ -211,6 +259,9 @@ class Console:
                     controller_generation=process_generation(controller_pid()),
                     boot_id=boot_identity(),
                 )
+                if args == ["console-task"]:
+                    write_json(self.jobs / (job["id"] + ".request"), value)
+                    args = [*args, job["id"]]
                 write_json(self.jobs / (job["id"] + ".json"), job)
                 thread = threading.Thread(
                     target=self.execute, args=(dict(job), args, lease), daemon=False
@@ -285,11 +336,26 @@ class Console:
             if job["action"] == "auto-start":
                 report = read_json(log)
                 self.auto_start = {"state": report["state"], "reason": report["reason"]}
+            if code == 0 and log.stat().st_size <= 65536:
+                try:
+                    report = read_json(log)
+                    if isinstance(report, dict):
+                        job["result"] = report
+                except (ValueError, OSError):
+                    pass
             job.update(state="succeeded" if code == 0 else "failed", exit_code=code)
         except BaseException:
             if process is not None:
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    if job["action"] == "supervisor-update":
+                        # Let the updater terminate its separately grouped installer.
+                        os.killpg(process.pid, signal.SIGINT)
+                        try:
+                            process.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            os.killpg(process.pid, signal.SIGKILL)
+                    else:
+                        os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
                 process.wait()
@@ -299,6 +365,7 @@ class Console:
                 "recover, then acknowledge this job",
             )
         finally:
+            (self.jobs / (job["id"] + ".request")).unlink(missing_ok=True)
             job["finished_at"] = datetime.now(timezone.utc).isoformat()
             try:
                 write_json(self.jobs / (job["id"] + ".json"), job)
@@ -338,6 +405,37 @@ class Console:
                     status = 401
                 elif headers.get("origin") not in (None, self.origin):
                     status = 403
+                elif path == "/api/transfers" and method == "POST":
+                    if not self.transfer_lock.acquire(blocking=False):
+                        raise BusyError("Another upload is running")
+                    try:
+                        body = json.dumps(
+                            await console_transfers.upload(
+                                self.config, headers, receive
+                            )
+                        ).encode()
+                        status = 201
+                    finally:
+                        self.transfer_lock.release()
+                elif (
+                    re.fullmatch(r"/api/transfers/[0-9a-f]{32}", path)
+                    and method == "GET"
+                ):
+                    await console_transfers.download(
+                        self.config, path.rsplit("/", 1)[1], send, security
+                    )
+                    return
+                elif (
+                    re.fullmatch(r"/api/checkpoints/[0-9a-f]{32}", path)
+                    and method == "GET"
+                ):
+                    body = json.dumps(
+                        await asyncio.to_thread(
+                            console_admin.checkpoint_summary,
+                            self.config,
+                            path.rsplit("/", 1)[1],
+                        )
+                    ).encode()
                 elif path == "/api/state" and method == "GET":
                     body = json.dumps(await asyncio.to_thread(self.snapshot)).encode()
                 elif path == "/api/events" and method == "GET":
@@ -361,7 +459,10 @@ class Console:
                                 )
                             }
                         ).encode()
-                elif path == "/api/actions" and method == "POST":
+                elif (
+                    path == "/api/actions"
+                    or re.fullmatch(r"/api/jobs/[0-9a-f]{32}/acknowledge", path)
+                ) and method == "POST":
                     if headers.get("content-type") != "application/json":
                         status = 415
                     else:
@@ -371,17 +472,30 @@ class Console:
                             if message["type"] == "http.disconnect":
                                 return
                             data.extend(message.get("body", b""))
-                            if len(data) > 8192:
-                                raise ValueError("Action request exceeds 8192 bytes")
+                            if len(data) > 65536:
+                                raise ValueError("Action request exceeds 65536 bytes")
                             if not message.get("more_body"):
                                 break
                         value = json.loads(data)
                         if not isinstance(value, dict):
                             raise ValueError("Action request must be an object")
-                        body = json.dumps(
-                            await asyncio.to_thread(self.submit, value)
-                        ).encode()
-                        status = 202
+                        if path.endswith("/acknowledge"):
+                            if value != {"confirmed": True}:
+                                raise ValueError(
+                                    "Confirm service and operation inspection"
+                                )
+                            await asyncio.to_thread(
+                                acknowledge,
+                                self.config,
+                                Store(self.config.state_dir),
+                                path.split("/")[3],
+                            )
+                            body = b'{"acknowledged":true}'
+                        else:
+                            body = json.dumps(
+                                await asyncio.to_thread(self.submit, value)
+                            ).encode()
+                            status = 202
                 else:
                     status = 404
             else:
@@ -391,10 +505,14 @@ class Console:
                 409,
                 b'{"error":"Another operation is running or needs recovery"}',
             )
-        except (ValueError, KeyError) as error:
+        except (ValueError, KeyError, TimeoutError) as error:
             message = str(error) if isinstance(error, ValueError) else "Invalid request"
             # Only action validation messages are safe to expose directly.
-            if path != "/api/actions":
+            if (
+                path != "/api/actions"
+                and not path.endswith("/acknowledge")
+                and path != "/api/transfers"
+            ):
                 message = "Invalid request"
             status, body = 400, json.dumps({"error": message}).encode()
         except Exception:
@@ -500,6 +618,7 @@ def acknowledge(config: Config, store: Store, job_id: str) -> None:
                     alive = False
                 if alive and prefix == "child":
                     raise BusyError("Console child process is still running")
+            path.with_suffix(".request").unlink(missing_ok=True)
             job["state"] = "acknowledged"
             write_json(path, job)
     finally:

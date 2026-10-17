@@ -4,11 +4,13 @@ let controller = new AbortController();
 function lockConsole() {
   session++; controller.abort(); controller = new AbortController();
   token=''; cursor=0; busy=false; submitting=false;
+  if(typeof adminLock==='function')adminLock();
   el('console').hidden=true; el('logout').hidden=true; el('login').hidden=false;
   for(const id of ['events','operations','jobs','schedules','service','selected','notice','error','autostart-summary']) el(id).textContent='';
   for(const id of ['installation','checkpoint']) el(id).replaceChildren();
 }
 function updateButtons() {
+  if(typeof updateAdminButtons==='function')updateAdminButtons();
   document.querySelectorAll('[data-action]').forEach(button=>{button.disabled=submitting || !!el('jobs').querySelector('[data-running]');});
 }
 const el = id => document.getElementById(id);
@@ -49,8 +51,9 @@ async function refresh() {
     el('jobs').replaceChildren(...state.jobs.map(item=>{
       const row=document.createElement('details'), summary=document.createElement('summary'), output=document.createElement('pre');
       row.className='row'; if(['running','interrupted'].includes(item.state)) row.dataset.running='true'; row.dataset.id=item.id; row.open=opened.has(item.id); summary.textContent=item.id+' · '+item.action+' · '+item.state;
-      row.append(summary,output); row.addEventListener('toggle',async()=>{if(row.open) {try {output.textContent=(await request('jobs/'+item.id)).output;} catch(error) {output.textContent=error.message;}}}); return row;
+      row.append(summary,output); if(['running','interrupted'].includes(item.state)){const acknowledge=document.createElement('button');acknowledge.className='action-button';acknowledge.textContent='Acknowledge after inspection';acknowledge.setAttribute('data-recovery-ack','');acknowledge.onclick=async()=>{if(!confirm('Confirm service and operation inspection? This only acknowledges console bookkeeping.'))return;try{await request('jobs/'+item.id+'/acknowledge',{confirmed:true});await refresh();}catch(error){el('error').textContent=error.message;}};row.append(acknowledge);} row.addEventListener('toggle',async()=>{if(row.open) {try {output.textContent=(await request('jobs/'+item.id)).output;} catch(error) {output.textContent=error.message;}}}); return row;
     }));
+    if(typeof renderAdmin==='function')renderAdmin(state);
     el('schedules').textContent=state.schedules.length ? JSON.stringify(state.schedules,null,2) : 'No schedules configured.';
     const progress=await request('events?after='+cursor);
     if(currentSession!==session) return;
@@ -70,13 +73,13 @@ document.querySelectorAll('[data-action]').forEach(button=>button.onclick=async(
   if(['install','upgrade'].includes(action)) value.target=el('version').value.trim();
   else if(action==='activate') value.target=el('installation').value;
   else if(['checkpoint-verify','restore-plan','checkpoint-restore'].includes(action)) value.target=el('checkpoint').value;
-  else if(['acknowledge','upgrade-resume','restore-recover'].includes(action)) value.target=el('recovery').value;
+  else if(['acknowledge','upgrade-resume','upgrade-cancel','upgrade-restore','restore-recover'].includes(action)) value.target=el('recovery').value;
   if(!['start','install','checkpoint-verify','restore-plan'].includes(action)) {
     if(!confirm('Run '+action+'? This may interrupt BSM. Offline actions also require confirmation that BSM is not running outside its managed service.')) return;
     value.confirmed=true;
   }
   if(action==='upgrade') {if(!confirm('Allow BSM database migrations? Recovery may require restoring a checkpoint and discarding newer data.')) return; value.accept_migrations=true;}
-  if(action==='checkpoint-restore') {if(!confirm('Replace saved data and discard changes made since this checkpoint?')) return; value.restore_data=true;}
+  if(['checkpoint-restore','upgrade-restore'].includes(action)) {if(!confirm('Replace saved data and discard changes made since this checkpoint?')) return; value.restore_data=true;}
   submitting=true; updateButtons();
   try {const job=await request('actions',value); if(currentSession!==session) return; el('notice').textContent='Queued '+job.action+' · '+job.id; await refresh();} catch(error) {if(error.name!=='AbortError' && currentSession===session) el('error').textContent=error.message;} finally {if(currentSession===session) {submitting=false;updateButtons();}}
 });

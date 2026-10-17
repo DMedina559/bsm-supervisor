@@ -104,6 +104,35 @@ def verify(config: Config, checkpoint_id: str) -> dict:
         for item in record["entries"]
     ):
         raise ValueError("Checkpoint byte count does not match its inventory")
+    database = manifest.get("database_path")
+    if not isinstance(database, str) or not Path(database).is_absolute():
+        raise ValueError("Checkpoint has no valid SQLite database path")
+    copied_database = None
+    for record in manifest["roots"]:
+        if Path(database).is_relative_to(Path(record["path"])):
+            copied_database = (
+                payload / record["id"] / Path(database).relative_to(record["path"])
+            )
+    if (
+        copied_database is None
+        or copied_database.is_symlink()
+        or not copied_database.is_file()
+    ):
+        raise ValueError("Checkpoint database is outside the saved payload")
+    try:
+        with readonly_database(copied_database) as db:
+            if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise ValueError("Checkpoint SQLite integrity check failed")
+            revisions = sorted(
+                row[0]
+                for row in db.execute(
+                    "SELECT version_num FROM alembic_version LIMIT 10"
+                )
+            )
+            if revisions != manifest.get("schema_revision"):
+                raise ValueError("Checkpoint database schema differs from its manifest")
+    except sqlite3.Error as error:
+        raise ValueError("Checkpoint SQLite database is invalid") from error
     return manifest
 
 
@@ -278,6 +307,10 @@ def prune(config: Config, store: Store, keep: int) -> list[str]:
             reverse=True,
         )
         protected = {item["id"] for item in checkpoints[:keep]}
+        for path in config.state_dir.glob("restore-*.json"):
+            target = read_json(path).get("checkpoint_id")
+            if isinstance(target, str):
+                protected.add(target)
         installed = {item["id"] for item in store.installations()}
         seen = set()
         for item in checkpoints:

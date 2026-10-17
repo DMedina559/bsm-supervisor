@@ -38,3 +38,16 @@ footer { margin-top: 24px; font-size: 12px; }
 
 .service-state[data-state="unavailable"], .service-state[data-state="failed"] { color: var(--bsm-danger); }
 .service-state[data-state="inactive"], .service-state[data-state="activating"] { color: var(--bsm-muted); }
+.console-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
+.console-nav [aria-current="page"] { border-color: var(--bsm-accent); color: var(--bsm-accent); background: var(--bsm-surface-raised); }
+.two-columns { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.output-panel { margin-top: 20px; }
+.field-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.scroll-list { max-height: 280px; overflow: auto; margin-top: 16px; }
+input[type="checkbox"] { accent-color: var(--bsm-accent-strong); margin-right: 6px; }
+dialog { width: min(720px, calc(100% - 28px)); max-height: 90vh; overflow: auto; padding: 24px; color: var(--bsm-text); background: var(--bsm-surface); border: 1px solid var(--bsm-border); border-radius: var(--bsm-radius-lg); }
+dialog::backdrop { background: var(--bsm-overlay); }
+#transfer-list button, #schedule-list button { margin: 0 6px 6px 0; }
+#admin-output:empty { display: none; }
+
+p { overflow-wrap: anywhere; }

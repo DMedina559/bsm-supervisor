@@ -112,7 +112,7 @@ jobs:
           from pathlib import Path
           import bsm_supervisor
           assert version('bsm-supervisor') == os.environ['RELEASE_TAG'][1:]
-          for name in ('index.html', 'app.js', 'style.css',
+          for name in ('index.html', 'app.js', 'admin.js', 'style.css',
                        'frontend/tokens.css', 'frontend/base.css',
                        'frontend/buttons.css', 'frontend/forms.css',
                        'frontend/icon-192.png', 'frontend/favicon-96.png',

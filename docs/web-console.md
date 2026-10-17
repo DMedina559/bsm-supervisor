@@ -94,9 +94,9 @@ restore data, or restart BSM. Restarting/updating the console can interrupt a
 running console child command; finish those jobs before console maintenance.
 
 The console unit runs as root because existing service management requires root.
-It is a trusted operator interface. Filesystem paths, detailed health reports,
-schedule editing, archive transfers, and supervisor self-updates remain CLI
-operations. Job logs and progress remain local until explicitly accessed; manage
+It is a trusted operator interface. The console provides health reports, service logs, schedule editing, archive
+transfers, and supervisor self-updates. Storage relocation and console
+listener/origin changes remain host configuration tasks. Job logs and progress remain local until explicitly accessed; manage
 log retention according to available storage. All authenticated console users have the same administrative permissions.
 
 The footer links to the project source. If deploying a modified network-facing
@@ -156,3 +156,76 @@ This clears the operation guard without restarting BSM or claiming application
 readiness. An interrupted console job has a separate acknowledgement described
 above. Do not acknowledge migration or restore failures without completing the
 corresponding recovery procedure.
+
+## Backups and database restoration
+
+Open **Backups & restore** to create a coordinated BSM checkpoint. The supervisor
+gracefully stops a running BSM, captures the database and configured roots, then
+starts the process again after successful capture. Failed work leaves the
+service stopped for inspection. Checkpoints include a SQLite backup, configuration,
+and all configured data roots. External database engines are unsupported.
+
+Use **Prepare download** for a portable `.bsmcheckpoint` archive. Enable encryption
+and enter a password of at least 16 bytes to encrypt it. Use **Upload archive**,
+then **Verify & import** to add an uploaded checkpoint. For encrypted uploads,
+enter the original archive password. Failed password attempts retain the upload
+for retry. Import verifies scope, file hashes, SQLite integrity and schema
+metadata; it never overwrites an existing checkpoint or restores current data.
+
+Uploads and downloads use authenticated requests and opaque IDs; tokens never
+appear in download links. Passwords and optional GitHub credentials travel in
+private job requests, not command arguments or job logs, and are removed when
+consumed. Staged archives expire after 24 hours. Expired files are cleaned on the
+next upload; use **Delete staged file** to remove them immediately. Staging allows
+at most 20 archives and uploads enforce a total quota of twice `web_transfer_limit`.
+The default per-archive/import payload limit is 10 GiB; change it in Settings.
+The server streams transfers. Supported desktop browsers can save directly to a
+chosen file; other browsers use their in-memory Blob download fallback.
+
+Use **Inspect contents** or **Restore wizard** to review database location, schema
+revision, version, coverage and replacement effects. The wizard requires the
+matching BSM version (and exact Git installation for source builds), confirms
+downtime/data replacement, creates a pinned pre-restore checkpoint, and retains
+originals for recovery. Starting BSM afterward is optional. Full restoration is
+the supported selection: database-only or individual-file restoration is not
+offered because it can leave the restored state inconsistent. Version selection
+is unchanged. A preview digest is rechecked before BSM is stopped.
+
+Pin checkpoints to protect them. Deletion preserves pinned checkpoints, recorded
+restore targets and the newest checkpoint for each installed version. Retention
+keeps recent checkpoints and protected recovery versions. Clean up retained
+originals from a resolved restore in **Supervisor** while BSM is stopped before
+creating another checkpoint. Recovery failures require their normal explicit
+restore/upgrade recovery procedure.
+
+## Automation, settings and updates
+
+**Automation** creates and edits systemd schedules, runs them within their UTC
+maintenance windows, removes owned timers and acknowledges inspected run
+bookkeeping. Maintenance and migration permissions are explicit. Edits retain
+the previous policy privately and refuse active scheduled jobs or foreign units.
+Configure an HTTPS webhook without revealing its saved URL; use a notification
+schedule for automatic delivery and retry of completion events.
+
+**Settings** edits supported timeouts, transfer limits, console autostart and BSM
+listener, port, log level and database URL. Existing database URLs are concealed;
+a blank replacement leaves them unchanged. Proxmox/environment overrides are
+shown and cannot be replaced through the form. Runtime listener/database changes
+require BSM to be stopped and refresh the managed unit without starting it. The
+previous TOML file is retained privately as `state_dir/config-before-console.toml`.
+If unit refresh fails, inspect history and use **Refresh managed unit** after
+resolving the failure. Storage paths and service identity are read-only.
+
+**Supervisor** shows the installed version/revision, checks available releases,
+updates from a published tag or explicit branch/commit, and resumes interrupted
+updates. `latest` selects a stable release; choose a beta tag explicitly for a
+prerelease. Public repositories need no GitHub token. Private access accepts a
+one-operation token which is not saved in configuration. Updates share CLI
+recovery behavior and may stop/restart BSM. Finish the update, then use **Restart
+console**, reload and reconnect to load the new console code. Restart requires
+the generated `bsm-supervisor-console.service`; custom units need a host restart.
+
+Health checks, service logs and diagnostics appear in **Action output**, with a
+downloadable last report. Read-only checks remain available for interrupted
+console jobs. Acknowledging a console job checks its process lease and does not
+acknowledge underlying operations or perform service/data recovery.
