@@ -47,6 +47,7 @@ RestartSec=10
 TimeoutStopSec=180
 KillMode=control-group
 UMask=0077
+PassEnvironment=BSM_LOG_LEVEL
 UnsetEnvironment=BSM_DB_URL BSM_DATA_DIR BSM_CONFIG_DIR
 
 [Install]

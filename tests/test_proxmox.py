@@ -29,7 +29,7 @@ with open(os.environ['COMMAND_LOG'], 'a') as log:
 if name == 'pvesh':
     print('901' if '/cluster/nextid' in args else '[{"vmid": 900, "type": "qemu"}]')
 elif name == 'pveversion':
-    print('pve-manager/' + os.environ.get('PVE_MAJOR', '9') + '.1.0/test')
+    print('pve-manager/' + os.environ.get('PVE_MAJOR', '9') + '.2.0/test')
 elif name == 'pvesm':
     if args[0] == 'path':
         print(os.environ['TEMPLATE_PATH'])
@@ -45,6 +45,10 @@ elif name == 'pveam':
             print('system debian-13-standard_13.1-1_amd64.tar.zst')
 else:
     if name == 'pct':
+        if args == ['help', 'create']:
+            supported = not os.environ.get('NO_NATIVE_ENV')
+            print('--env <string>' if supported else '--hostname <string>')
+            raise SystemExit(0)
         if os.environ.get('CAPTURE_UMASK'):
             print(format(os.umask(0), '03o'))
             raise SystemExit(0)
@@ -100,7 +104,13 @@ else:
         self.assertIn("local:vztmpl/debian-12-standard_12.10-1_amd64.tar.zst", create)
         self.assertEqual(create[create.index("--unprivileged") + 1], "1")
         self.assertIn("local-lvm:16", create)
-        self.assertFalse(any(command[0] == "pct" for command in self.commands()))
+        self.assertIn("BSM_SUPERVISOR_WEB_HOST=0.0.0.0", create)
+        self.assertFalse(
+            any(
+                command[0] == "pct" and command[1:3] != ["help", "create"]
+                for command in self.commands()
+            )
+        )
         self.assertFalse(
             any(
                 command[:2] in (["pveam", "update"], ["pveam", "download"])
@@ -114,12 +124,14 @@ else:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("debian-13-standard_13.1-1_amd64.tar.zst", result.stdout)
 
-    def test_proxmox8_selects_debian12_instead_of_debian13(self):
-        self.environment.update(DEBIAN13="1", PVE_MAJOR="8")
-        result = self.run_plan()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("debian-12-standard_12.10-1_amd64.tar.zst", result.stdout)
-        self.assertNotIn("debian-13", result.stdout)
+    def test_old_hosts_and_missing_environment_capability_are_rejected(self):
+        for overrides in ({"PVE_MAJOR": "8"}, {"NO_NATIVE_ENV": "1"}):
+            with self.subTest(overrides=overrides):
+                self.environment.update(overrides)
+                result = self.run_plan()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("pct create", result.stdout)
+                self.environment.pop(next(iter(overrides)))
 
     def test_default_wizard_uses_storage_menus_in_a_terminal(self):
         executable = self.bin / "whiptail"

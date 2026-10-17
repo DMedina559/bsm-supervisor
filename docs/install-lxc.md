@@ -128,3 +128,6 @@ bash scripts/install-lxc.sh --source-dir "$PWD" --install-bsm-unit
 Shell validation and simulated upgrade recovery tests run in CI. A complete root
 bootstrap, application setup, and upgrade on a real Proxmox LXC still need field
 validation.
+
+See [BSM listener and Proxmox environment](listener-environment.md) for LAN binding,
+native environment settings, and updating an existing managed unit.

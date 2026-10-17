@@ -5,6 +5,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .environment import overrides
+
 
 @dataclass(frozen=True)
 class Config:
@@ -19,6 +21,8 @@ class Config:
     checkpoint_paths: tuple[Path, ...] = ()
     api_token_file: Path | None = None
     readiness_timeout: int = 60
+    bsm_host: str = "127.0.0.1"
+    bsm_port: int = 11325
 
     @property
     def config_dir(self) -> Path:
@@ -26,6 +30,15 @@ class Config:
         return self.bsm_config_dir or self.data_dir / "config"
 
     def __post_init__(self) -> None:
+        if not isinstance(self.bsm_host, str) or self.bsm_host not in (
+            "127.0.0.1",
+            "0.0.0.0",
+            "::1",
+            "::",
+        ):
+            raise ValueError("bsm_host must be a loopback or wildcard IP address")
+        if type(self.bsm_port) is not int or not 1 <= self.bsm_port <= 65535:
+            raise ValueError("bsm_port must be an integer from 1 to 65535")
         paths = (self.state_dir, self.installations_dir, self.data_dir)
         for path in paths:
             if not path.is_absolute():
@@ -80,6 +93,8 @@ class Config:
             "checkpoint_paths",
             "api_token_file",
             "readiness_timeout",
+            "bsm_host",
+            "bsm_port",
         }
         unknown = values.keys() - allowed
         if unknown:
@@ -108,4 +123,12 @@ class Config:
             values["checkpoint_paths"] = tuple(Path(path) for path in paths)
         if "service_unit" in values and not isinstance(values["service_unit"], str):
             raise ValueError("service_unit must be a string")
+        environment = overrides()
+        if "BSM_SUPERVISOR_WEB_HOST" in environment:
+            values["bsm_host"] = environment["BSM_SUPERVISOR_WEB_HOST"]
+        if "BSM_SUPERVISOR_WEB_PORT" in environment:
+            port = environment["BSM_SUPERVISOR_WEB_PORT"]
+            if not port.isascii() or not port.isdecimal():
+                raise ValueError("BSM_SUPERVISOR_WEB_PORT must contain an integer")
+            values["bsm_port"] = int(port)
         return cls(**values)

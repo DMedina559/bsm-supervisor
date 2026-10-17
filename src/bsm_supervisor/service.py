@@ -81,7 +81,7 @@ def managed_command(config: Config) -> str:
         f"/usr/bin/flock --shared --nonblock --no-fork {maintenance} "
         f"{python} -I -m bedrock_server_manager "
         f"--config-dir {config.config_dir} --data-dir {config.data_dir} "
-        "web start --mode direct"
+        f"web start --mode direct --host {config.bsm_host} --port {config.bsm_port}"
     )
 
 

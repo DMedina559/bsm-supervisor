@@ -3,6 +3,10 @@ installations_dir = "/opt/bsm/installations"
 data_dir = "/srv/bsm"
 service_unit = "bedrock-server-manager-webui.service"
 service_timeout = 240
+# LXC default: reachable on all IPv4 interfaces. Use 127.0.0.1 for a local proxy.
+bsm_host = "0.0.0.0"
+bsm_port = 11325
+# Native Proxmox environment overrides: BSM_SUPERVISOR_WEB_HOST / WEB_PORT.
 
 # Optional: adopt a BSM configuration directory outside data_dir.
 # bsm_config_dir = "/etc/bedrock-server-manager"

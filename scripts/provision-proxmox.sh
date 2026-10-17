@@ -4,6 +4,7 @@ set -euo pipefail
 umask 077
 ctid=
 hostname=bsm-supervisor
+bsm_host=0.0.0.0
 storage=local-lvm
 template_storage=local
 template=
@@ -33,6 +34,7 @@ Usage: provision-proxmox.sh [OPTIONS]
   --template VOLUME           Existing Debian 12+/Ubuntu 24.04+ template volume
   --template-storage NAME    Download storage (default: local)
                              Without --template, download latest Debian 13/12 amd64
+  --bsm-host ADDRESS         0.0.0.0 (default), 127.0.0.1, ::, or ::1
   --bridge NAME              Default: vmbr0
   --ip dhcp|IPV4/CIDR         Default: dhcp
   --gateway IPV4             Required with static --ip
@@ -56,7 +58,7 @@ while (($#)); do
         --dry-run) dry_run=true; shift ;;
         --onboot) onboot=1; shift ;;
         --help|-h) usage; exit 0 ;;
-        --ctid|--hostname|--storage|--template-storage|--template|--bridge|--ip|--gateway|--nameserver|--vlan|--cores|--memory|--swap|--disk|--ref|--source-dir)
+        --ctid|--bsm-host|--hostname|--storage|--template-storage|--template|--bridge|--ip|--gateway|--nameserver|--vlan|--cores|--memory|--swap|--disk|--ref|--source-dir)
             (($# >= 2)) || fail "Missing value for $1"
             option=${1#--}; option=${option//-/_}
             [[ $option != ip ]] || option=address
@@ -74,6 +76,14 @@ done
 pct() {
     (umask 022; command pct "$@")
 }
+
+host_version=$(pveversion)
+[[ $host_version =~ pve-manager/([0-9]+)\.([0-9]+)\. ]] || fail 'Cannot identify Proxmox version.'
+host_major=${BASH_REMATCH[1]}
+host_minor=${BASH_REMATCH[2]}
+((host_major > 9 || (host_major == 9 && host_minor >= 2))) || fail 'The host provisioner targets Proxmox VE 9.2+.'
+host_help=$(pct help create 2>&1)
+[[ $host_help == *--env* ]] || fail 'This Proxmox build lacks native container environment support.'
 
 # Self-contained community-script style wizard; no remote helper code is sourced.
 ask() {
@@ -124,6 +134,7 @@ if $interactive; then
         ask memory 'RAM in MB' "$memory"
         ask swap 'Swap in MB' "$swap"
         ask disk 'Root disk size in GB' "$disk"
+        ask bsm_host "BSM bind address" "$bsm_host"
         ask bridge 'Network bridge' "$bridge"
         ask address 'IPv4: dhcp or address/prefix' "$address"
         if [[ $address != dhcp ]]; then ask gateway 'IPv4 gateway' "$gateway"; fi
@@ -136,6 +147,7 @@ if $interactive; then
     choose_storage storage rootdir "$storage"
     if [[ -z $template ]]; then choose_storage template_storage vztmpl "$template_storage"; fi
 fi
+[[ $bsm_host == 0.0.0.0 || $bsm_host == 127.0.0.1 || $bsm_host == :: || $bsm_host == ::1 ]] || fail 'Invalid BSM bind address.'
 [[ $onboot == 0 || $onboot == 1 ]] || fail 'onboot must be 0 or 1.'
 for value in "$hostname" "$storage" "$template_storage" "$bridge"; do
     [[ $value =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$ ]] || fail 'Invalid hostname, storage, or bridge name.'
@@ -179,12 +191,7 @@ else
     command -v pveam >/dev/null || fail 'pveam is required for automatic template download.'
     [[ $(uname -m) == x86_64 ]] || fail 'Automatic Debian amd64 template selection needs an x86_64 host.'
     if ! $dry_run; then pveam update; fi
-    host_version=$(pveversion)
-    [[ $host_version =~ pve-manager/([0-9]+)\. ]] || fail 'Cannot identify the Proxmox VE version.'
-    host_major=${BASH_REMATCH[1]}
-    ((host_major >= 8)) || fail 'Proxmox VE 8+ is required for automatic template selection.'
-    template_versions='12'
-    if ((host_major >= 9)); then template_versions='12|13'; fi
+    template_versions='12|13'
     template_name=$(pveam available --section system | awk -v versions="$template_versions" '$2 ~ ("^debian-(" versions ")-standard_.*_amd64\\.tar\\.(zst|gz|xz)$") {print $2}' | sort -V | tail -n 1)
     [[ -n $template_name ]] || fail 'No supported Debian template found; run pveam update or pass --template.'
     template="$template_storage:vztmpl/$template_name"
@@ -193,7 +200,7 @@ fi
 network="name=eth0,type=veth,bridge=$bridge,ip=$address,ip6=manual,firewall=1"
 [[ -z $gateway ]] || network+=",gw=$gateway"
 [[ -z $vlan ]] || network+=",tag=$vlan"
-create=(pct create "$ctid" "$template" --hostname "$hostname" --unprivileged 1 --cores "$cores" --memory "$memory" --swap "$swap" --rootfs "$storage:$disk" --net0 "$network" --onboot "$onboot")
+create=(pct create "$ctid" "$template" --hostname "$hostname" --unprivileged 1 --cores "$cores" --memory "$memory" --swap "$swap" --rootfs "$storage:$disk" --net0 "$network" --onboot "$onboot" --env "BSM_SUPERVISOR_WEB_HOST=$bsm_host")
 [[ -z $nameserver ]] || create+=(--nameserver "$nameserver")
 printf 'New LXC plan: ID=%s, hostname=%s, template=%s\n' "$ctid" "$hostname" "$template"
 printf '%q ' "${create[@]}"; printf '\n'
@@ -202,7 +209,7 @@ if $interactive && ! $dry_run; then
 CPU: $cores | RAM: $memory MB | Swap: $swap MB | Disk: $storage:$disk GB
 Template: $template
 Network: $bridge | IPv4: $address | VLAN: ${vlan:-untagged}
-Supervisor ref: $ref | On boot: $onboot
+Supervisor ref: $ref | On boot: $onboot | BSM bind: $bsm_host
 BSM will remain stopped."
     if command -v whiptail >/dev/null; then
         whiptail --title 'BSM Supervisor LXC' --yesno "$summary" 17 80 || exit 0

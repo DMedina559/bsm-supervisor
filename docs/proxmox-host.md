@@ -1,5 +1,7 @@
 # Proxmox host setup
 
+Requires Proxmox VE **9.2+** with native container environment support.
+
 Launch the host script from the **Proxmox host shell**, rather than inside an
 existing LXC. It provides a community-script style Default/Advanced wizard and
 storage selection menus. It uses `whiptail` when available and ordinary terminal
@@ -43,11 +45,13 @@ The hostname is `bsm-supervisor`; networking uses DHCP on `vmbr0`, with IPv6 lef
 unconfigured and the interface firewall flag enabled. Container autostart is off.
 The next available cluster guest ID is suggested. Advanced mode lets you change
 ID, hostname, resources, bridge, static IPv4/gateway, DNS, VLAN, autostart, and the
-supervisor source revision. Storage menus appear in both modes.
+supervisor source revision and BSM bind address. Storage menus appear in both modes.
+The default BSM bind is `0.0.0.0`, supplied through the native container environment
+as `BSM_SUPERVISOR_WEB_HOST`. See [listener configuration](listener-environment.md)
+for port overrides and existing-container migration.
 
 Without an explicit template, the script refreshes the appliance catalog and
-selects the newest Debian 13 standard amd64 image on Proxmox VE 9+, falling
-back to Debian 12. Proxmox VE 8 selects Debian 12 for host compatibility.
+selects the newest Debian 13 standard amd64 image, falling back to Debian 12.
 An x86_64 host is required for automatic template selection. The template cache
 may be updated before the creation confirmation; a cancelled wizard never creates
 a container. Existing templates are reused by the Proxmox appliance manager.
