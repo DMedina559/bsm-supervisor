@@ -206,3 +206,7 @@ Multi-instance orchestration, Minecraft server management outside BSM, Docker ma
 
 See [LICENSE](LICENSE).
 
+
+Git branch/tag/commit installations and conservative environment removal are
+available through `install-git` and `installation-remove`. See
+[Git sources and cleanup](docs/sources-cleanup.md) for commands and recovery limits.

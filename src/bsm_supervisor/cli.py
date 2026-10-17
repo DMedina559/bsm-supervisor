@@ -6,9 +6,10 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from . import checkpoints, restoration, runtime, upgrades
+from . import checkpoints, cleanup, restoration, runtime, upgrades
 from .activation import activate, selection, service_unit
 from .config import Config
+from .git_sources import install_git
 from .install import install
 from .integration import inspect as inspect_integration
 from .releases import ReleaseError, discover, select
@@ -60,6 +61,15 @@ def parser() -> argparse.ArgumentParser:
     upgrade_status.add_argument("workflow_id", type=int)
     installation = commands.add_parser("install")
     installation.add_argument("selector", help="stable, prerelease, or exact version")
+    git_install = commands.add_parser("install-git")
+    refs = git_install.add_mutually_exclusive_group(required=True)
+    for kind in ("branch", "tag", "commit"):
+        refs.add_argument("--" + kind)
+    git_install.add_argument("--trust-source-build", action="store_true", required=True)
+    removal = commands.add_parser("installation-remove")
+    removal.add_argument("id")
+    removal.add_argument("--offline-confirmed", action="store_true", required=True)
+    removal.add_argument("--delete-confirmed", action="store_true", required=True)
     activation = commands.add_parser("activate")
     activation.add_argument("id")
     activation.add_argument(
@@ -217,6 +227,16 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "install":
             release = select(discover(), args.selector)
             print(json.dumps(install(config, store, release), indent=2))
+        elif args.command == "install-git":
+            kind = next(k for k in ("branch", "tag", "commit") if getattr(args, k))
+            print(
+                json.dumps(
+                    install_git(config, store, kind, getattr(args, kind)), indent=2
+                )
+            )
+        elif args.command == "installation-remove":
+            cleanup.remove(config, store, args.id)
+            print("Installation removed")
         elif args.command == "activate":
             activate(config, store, args.id)
             print("Installation selected; BSM remains stopped and no data was restored")
