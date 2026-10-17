@@ -4,10 +4,14 @@ let controller = new AbortController();
 function lockConsole() {
   session++; controller.abort(); controller = new AbortController();
   token=''; cursor=0; busy=false; submitting=false;
+  if(document.body)document.body.dataset.connected='false';
+  el('console-connection').textContent='Locked';el('connection-chip').dataset.state='locked';
+  for(const id of ['sidebar-version','sidebar-installation','summary-service','summary-version','summary-backups','summary-attention','summary-service-detail','summary-version-detail','summary-backups-detail','summary-attention-detail'])el(id).textContent='';
   if(typeof adminLock==='function')adminLock();
   el('console').hidden=true; el('logout').hidden=true; el('login').hidden=false;
   for(const id of ['events','operations','jobs','schedules','service','selected','notice','error','autostart-summary']) el(id).textContent='';
   for(const id of ['installation','checkpoint']) el(id).replaceChildren();
+  if(typeof el('token').focus==='function')el('token').focus();
 }
 function updateButtons() {
   if(typeof updateAdminButtons==='function')updateAdminButtons();
@@ -30,7 +34,43 @@ function options(id, items, label) {
   select.replaceChildren(...items.map(item => {const option = document.createElement('option'); option.value = item.id; option.textContent = label(item); return option;}));
   if (items.some(item => item.id === previous)) select.value = previous;
 }
-function rows(id, items, label) {if(!items.length) {el(id).textContent='No operations recorded.';return;} el(id).replaceChildren(...items.map(item => {const row=document.createElement('div'); row.className='row'; row.textContent=label(item); return row;}));}
+function actionLabel(action) {
+  return ({'service:start':'Start BSM','service:stop':'Stop BSM','service:graceful-stop':'Graceful stop','service:restart':'Restart BSM','service:unit-refresh':'Refresh managed unit','supervisor:install':'Install supervisor','supervisor:update-preflight':'Supervisor update checks'})[action] || String(action).replaceAll(':',' · ').replaceAll('-',' ');
+}
+function renderOperationRows(items) {
+  const container=el('operations');
+  if(!items.length){container.textContent='No operations recorded. Service and maintenance history will appear here.';return;}
+  const opened=new Set([...container.querySelectorAll('details[open]')].map(row=>row.dataset.id));
+  container.replaceChildren(...items.map(item=>{
+    const row=document.createElement(item.detail?'details':'div'), heading=document.createElement(item.detail?'summary':'div');
+    row.className='row';row.dataset.id=String(item.id);if(item.detail)row.open=opened.has(String(item.id));
+    heading.className='operation-summary';
+    const id=document.createElement('span'),label=document.createElement('span'),badge=document.createElement('span');
+    id.className='operation-id';id.textContent='#'+item.id;label.className='operation-label';label.textContent=actionLabel(item.action);
+    badge.className='status-badge';badge.dataset.state=item.state;badge.textContent=item.state==='running'&&item.detail?'Needs inspection':String(item.state).replaceAll('_',' ');
+    heading.append(id,label,badge);row.append(heading);
+    if(item.started_at){const time=document.createElement('time');time.className='operation-time';time.dateTime=item.started_at;time.textContent=new Date(item.started_at).toLocaleString();row.append(time);}
+    if(item.detail){const detail=document.createElement('p');detail.className='operation-detail';detail.textContent=item.detail;row.append(detail);}
+    return row;
+  }));
+}
+function renderWorkspace(state) {
+  const service=state.service||{},selected=state.selection,checkpoints=state.checkpoints||[];
+  const pending=(state.operations||[]).filter(item=>['running','interrupted'].includes(item.state));
+  const stateName=service.error?'unavailable':service.ActiveState||'unknown';
+  const labels={active:'Running',inactive:'Stopped',failed:'Failed',activating:'Starting',deactivating:'Stopping',unavailable:'Unavailable',unknown:'Unknown'};
+  el('summary-service').textContent=labels[stateName]||stateName;el('summary-service').dataset.state=stateName;
+  el('summary-service-detail').textContent=service.MainPID&&service.MainPID!=='0'?'Process '+service.MainPID:'Managed systemd service';
+  el('summary-version').textContent=selected?selected.version:'Not selected';
+  el('summary-version-detail').textContent=selected?'Active installation selection':'Choose an installed build';
+  el('summary-backups').textContent=String(checkpoints.filter(item=>!item.invalid).length);
+  el('summary-backups-detail').textContent=checkpoints.some(item=>item.invalid)?'Some checkpoints need inspection':'Saved recovery points';
+  el('summary-attention').textContent=pending.length?String(pending.length)+' to inspect':'All clear';
+  el('summary-attention').dataset.state=pending.length?'attention':'clear';
+  el('summary-attention-detail').textContent=pending.length?'Review operation history':'No pending interruptions';
+  el('sidebar-installation').textContent=selected?'BSM '+selected.version:'No version selected';
+  el('sidebar-version').textContent='Supervisor '+(state.supervisor?.version||'unknown');
+}
 async function refresh() {
   if (!token || busy) return;
   busy = true;
@@ -39,18 +79,18 @@ async function refresh() {
     const state = await request('state');
     if(currentSession!==session) return;
     el('service').dataset.state=state.service.error ? 'unavailable' : state.service.ActiveState;
-    el('service').textContent=state.service.error ? 'Service status unavailable: '+state.service.error : (state.service.ActiveState || 'unknown')+' · '+(state.service.SubState || 'unknown')+(state.service.MainPID && state.service.MainPID!=='0' ? ' · PID '+state.service.MainPID : '');
+    el('service').textContent=state.service.error ? 'Service status unavailable. Run diagnostics to inspect the managed service.' : (state.service.ActiveState || 'unknown')+' · '+(state.service.SubState || 'unknown')+(state.service.MainPID && state.service.MainPID!=='0' ? ' · PID '+state.service.MainPID : '');
     el('autostart-summary').textContent=state.autostart?.reason || '';
     el('selected').textContent=state.selection ? 'Selected: '+state.selection.id+' · '+state.selection.version : 'No version selected';
     options('installation',state.installations,item=>item.id+' · '+item.version);
     options('checkpoint',state.checkpoints,item=>item.id+(item.invalid?' · invalid':''));
-    rows('operations',state.operations,item=>'#'+item.id+' · '+item.action+' · '+item.state+(item.detail?' · '+item.detail:''));
+    renderOperationRows(state.operations);renderWorkspace(state);
     const pendingOperation=state.operations.find(item=>['running','interrupted'].includes(item.state));
     el('notice').textContent=pendingOperation ? 'Operation #'+pendingOperation.id+' needs inspection. Check its details and current service state before acknowledging in Recovery.' : '';
     const opened=new Set([...el('jobs').querySelectorAll('details[open]')].map(row=>row.dataset.id));
     el('jobs').replaceChildren(...state.jobs.map(item=>{
       const row=document.createElement('details'), summary=document.createElement('summary'), output=document.createElement('pre');
-      row.className='row'; if(['running','interrupted'].includes(item.state)) row.dataset.running='true'; row.dataset.id=item.id; row.open=opened.has(item.id); summary.textContent=item.id+' · '+item.action+' · '+item.state;
+      row.className='row'; if(['running','interrupted'].includes(item.state)) row.dataset.running='true'; row.dataset.id=item.id; row.open=opened.has(item.id); summary.textContent=actionLabel(item.action)+' · '+item.state+' · '+item.id.slice(0,8);summary.title=item.id;
       row.append(summary,output); if(['running','interrupted'].includes(item.state)){const acknowledge=document.createElement('button');acknowledge.className='action-button';acknowledge.textContent='Acknowledge after inspection';acknowledge.setAttribute('data-recovery-ack','');acknowledge.onclick=async()=>{if(!confirm('Confirm service and operation inspection? This only acknowledges console bookkeeping.'))return;try{await request('jobs/'+item.id+'/acknowledge',{confirmed:true});await refresh();}catch(error){el('error').textContent=error.message;}};row.append(acknowledge);} row.addEventListener('toggle',async()=>{if(row.open) {try {output.textContent=(await request('jobs/'+item.id)).output;} catch(error) {output.textContent=error.message;}}}); return row;
     }));
     if(typeof renderAdmin==='function')renderAdmin(state);
@@ -59,8 +99,12 @@ async function refresh() {
     if(currentSession!==session) return;
     for(const event of progress) {cursor=event.id; el('events').textContent += '#'+event.operation_id+' · '+event.state+(event.detail?' · '+event.detail:'')+'\n';}
     el('events').textContent=el('events').textContent.slice(-20000);
+    const firstUnlock=el('console').hidden;
     el('login').hidden=true; el('console').hidden=false; el('logout').hidden=false;
-  } catch(error) {if(error.name!=='AbortError' && currentSession===session) el('error').textContent=error.message;} finally {if(currentSession===session) {busy=false;updateButtons();}}
+    if(firstUnlock&&typeof el('page-title').focus==='function')el('page-title').focus({preventScroll:true});
+    if(document.body)document.body.dataset.connected='true';
+    el('console-connection').textContent='Connected';el('connection-chip').dataset.state='connected';
+  } catch(error) {if(error.name!=='AbortError' && currentSession===session) {el('error').textContent=error.message;if(token){el('console-connection').textContent='Unavailable';el('connection-chip').dataset.state='unavailable';}}} finally {if(currentSession===session) {busy=false;updateButtons();}}
 }
 el('login').addEventListener('submit', event=>{event.preventDefault(); const credential=el('token').value.trim(); lockConsole(); token=credential; el('token').value=''; refresh();});
 el('logout').onclick=lockConsole;

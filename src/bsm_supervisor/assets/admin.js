@@ -1,7 +1,7 @@
 'use strict';
 const adminState={settings:null,settingsLoaded:false,restore:null,job:null,report:null,renderedJob:null};
 const field=id=>document.getElementById(id);
-const bytes=n=>Number(n||0).toLocaleString()+' bytes';
+const bytes=n=>{const value=Number(n||0);if(value<1024)return value.toLocaleString()+' bytes';const scale=Math.min(4,Math.floor(Math.log(value)/Math.log(1024)));return (value/1024**scale).toLocaleString(undefined,{maximumFractionDigits:1})+' '+['bytes','KiB','MiB','GiB','TiB'][scale];};
 function adminMessage(message,error=false){field(error?'error':'admin-progress').textContent=message;}
 function adminLock(){adminState.settings=null;adminState.settingsLoaded=false;adminState.restore=null;adminState.job=null;adminState.report=null;adminState.renderedJob=null;
  for(const id of ['archive-password','notification-url','github-token','setting-bsm_db_url','archive-file'])field(id).value='';
@@ -19,8 +19,16 @@ async function runAdmin(value){if(submitting)return;const activeSession=session;
 function confirmAdmin(action,extra={},message='Run '+action+'? Review downtime and any data changes before continuing.'){
  if(!confirm(message))return;return runAdmin({action,confirmed:true,...extra});
 }
-function chooseSection(name){field('page-title').textContent=({overview:'Overview',backups:'Backups & restore',automation:'Automation',settings:'Settings',system:'Supervisor'})[name];document.querySelectorAll('.console-page').forEach(page=>{page.hidden=page.id!=='page-'+name;});document.querySelectorAll('[data-section]').forEach(button=>{if(button.dataset.section===name)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});}
-document.querySelectorAll('[data-section]').forEach(button=>button.onclick=()=>chooseSection(button.dataset.section));
+function chooseSection(name,focus=false){
+ const titles={overview:'Overview',backups:'Backups & restore',automation:'Automation',settings:'Settings',system:'Supervisor'};
+ const descriptions={overview:'Manage your BSM service, versions and recovery from one workspace.',backups:'Protect your instance, inspect checkpoints and restore verified data.',automation:'Schedule maintenance and keep track of completed work.',settings:'Configure the BSM runtime and its relationship with the supervisor.',system:'Update the supervisor, inspect diagnostics and manage stored installations.'};
+ if(!titles[name])return;
+ field('page-title').textContent=titles[name];field('breadcrumb-page').textContent=titles[name];field('page-description').textContent=descriptions[name];
+ document.querySelectorAll('.console-page').forEach(page=>{page.hidden=page.id!=='page-'+name;});
+ document.querySelectorAll('[data-section]').forEach(button=>{if(button.dataset.section===name)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});
+ if(focus)field('page-title').focus({preventScroll:true});
+}
+document.querySelectorAll('[data-section]').forEach(button=>button.onclick=()=>chooseSection(button.dataset.section,true));
 function smallButton(label,callback){const button=document.createElement('button');button.className='action-button';button.textContent=label;button.type='button';button.onclick=callback;return button;}
 function renderAdmin(state){
  options('archive-checkpoint',state.checkpoints,item=>(item.created_at||'Unknown date')+' · '+bytes(item.total_bytes)+(item.pinned?' · pinned':'')+' · '+item.id.slice(0,8));
