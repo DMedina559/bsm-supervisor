@@ -57,11 +57,7 @@ def control_record(config: Config, status: dict[str, str]) -> dict:
     """Bind local credentials to the current systemd PID and its process generation."""
     path = config.config_dir / "web_server.control.json"
     info = path.lstat()
-    if (
-        not stat.S_ISREG(info.st_mode)
-        or info.st_mode & 0o077
-        or info.st_size > 65536
-    ):
+    if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > 65536:
         raise RuntimeErrorBase("Invalid BSM runtime control record permissions")
     record = json.loads(path.read_text())
     if not isinstance(record, dict) or not isinstance(record.get("config_dir"), str):
