@@ -2,11 +2,11 @@
 
 The supervisor can prepare a published BSM release, gracefully shut down the current runtime, capture and pin a checkpoint, activate the release, and require authenticated application readiness.
 
-This workflow targets the audited BSM 4.0 runtime with an initialized SQLite database and fully declared filesystem coverage. It uses existing backend HTTP contracts and does not require backend changes. Automated schema compatibility negotiation is still unavailable; accepting an upgrade authorizes the selected release's forward migrations.
+This workflow targets the BSM 4.0 runtime with an initialized SQLite database and fully declared filesystem coverage. It uses existing backend HTTP contracts and does not require backend changes. Automated schema compatibility negotiation is still unavailable; accepting an upgrade authorizes the selected release's forward migrations.
 
 ## Configure readiness and startup control
 
-Install this supervisor version into its own Python environment, then regenerate and review the managed systemd unit. Its ExecCondition invokes the independently installed supervisor launchguard module, so the BSM service account needs read/execute access to that Python environment. Restarting or rolling back BSM does not replace the supervisor environment.
+Install the supervisor using the [LXC guide](install-lxc.md) and keep its [managed unit current](update-supervisor.md). Its ExecCondition invokes the independently installed supervisor launchguard module, so the BSM service account needs read/execute access to that Python environment. Restarting or rolling back BSM does not replace the supervisor environment.
 
 The unit uses both a persistent restore marker and an upgrade launch guard. During a controlled trial startup, the guard accepts a short-lived permit tied to the controller's process generation and kernel boot ID. A dead controller, reused PID, stale permit, or different boot cannot authorize startup.
 
@@ -25,8 +25,8 @@ Runtime identity verification requires matching systemd PID, process generation,
 
 ## Check readiness or stop gracefully
 
-    bsm-supervisor --config config.toml health
-    bsm-supervisor --config config.toml graceful-stop
+    bsm-supervisor health
+    bsm-supervisor graceful-stop
 
 Readiness requires ready=true, lifecycle=ready, healthy checks, and an exact running-version match. HTTP 200 by itself is insufficient. Graceful stop verifies the shutdown receipt's PID/instance identity and waits for an inactive service.
 
@@ -36,8 +36,8 @@ A startup that fails before publishing a verifiable control record may require a
 
 Check storage coverage and ensure no unmanaged BSM processes, standalone CLI mutations, Minecraft processes, or other external writers can modify the declared roots during maintenance.
 
-    bsm-supervisor --config config.toml integration
-    bsm-supervisor --config config.toml upgrade prerelease --maintenance-confirmed --accept-migrations
+    bsm-supervisor integration
+    bsm-supervisor upgrade prerelease --maintenance-confirmed --accept-migrations
 
 Use stable or an exact published version instead of prerelease when appropriate. A lower version is rejected. An intentional repair using the same version requires --allow-same-version.
 
@@ -59,11 +59,11 @@ BSM's existing shutdown lifecycle drains work and stops managed servers. The sup
 
 ## Inspect progress
 
-    bsm-supervisor --config config.toml upgrades
-    bsm-supervisor --config config.toml upgrade-status UPGRADE_ID
-    bsm-supervisor --config config.toml history
+    bsm-supervisor upgrades
+    bsm-supervisor upgrade-status UPGRADE_ID
+    bsm-supervisor history
 
-A durable workflow owns the entire operation, while its individual installation/service/checkpoint steps retain their own journal entries. Other supervisor mutations are blocked until the workflow completes or is recovered. A version-1 supervisor database migrates in place without discarding inventory/history.
+A durable workflow owns the entire operation, while its individual installation/service/checkpoint steps retain their own journal entries. Other supervisor mutations are blocked until the workflow completes or is recovered.
 
 The upgrade record includes the source/target, phase, checkpoint ID, whether target startup was ever attempted, and any sanitized failure. Ctrl+C leaves recoverable state and exits with code 130.
 
@@ -73,17 +73,17 @@ An unhealthy startup retains the selected target and data for inspection. The co
 
 Retry the prepared target without restoring older data:
 
-    bsm-supervisor --config config.toml upgrade-recover UPGRADE_ID --action resume --maintenance-confirmed
+    bsm-supervisor upgrade-recover UPGRADE_ID --action resume --maintenance-confirmed
 
 Cancel before target startup was attempted:
 
-    bsm-supervisor --config config.toml upgrade-recover UPGRADE_ID --action cancel --maintenance-confirmed
+    bsm-supervisor upgrade-recover UPGRADE_ID --action cancel --maintenance-confirmed
 
 The recorded startup-intent boundary is conservative: once startup may have run migrations, cancellation without data restoration is refused.
 
 Explicitly restore the checkpoint and its original BSM installation:
 
-    bsm-supervisor --config config.toml upgrade-recover UPGRADE_ID --action restore --maintenance-confirmed --restore-data-confirmed
+    bsm-supervisor upgrade-recover UPGRADE_ID --action restore --maintenance-confirmed --restore-data-confirmed
 
 Restoration replaces newer application/world data with the checkpoint contents. This is never automatic. The supervisor verifies the saved checkpoint and original environment, restores data, selects the original installation, and checks its readiness.
 
@@ -93,10 +93,8 @@ Generic acknowledge cannot bypass a pending upgrade. Use upgrade-recover for the
 
 Upgrade checkpoints remain pinned after completion or rollback. Unpin them explicitly when they are no longer needed, then apply checkpoint retention.
 
-## Validation and remaining boundaries
+## Supported recovery scope
 
-Tests exercise successful upgrades, unhealthy startup, retry/cancellation, explicit schema/data rollback, interrupted restoration, stale controller/boot identities, authentication failures, semantic health/version checks, and supervisor database migration.
+Coordinated recovery requires an initialized local SQLite database, complete filesystem coverage, and verifiable BSM runtime control records. External databases and unknown data layouts are refused. Automatic schema compatibility negotiation and suppression of BSM/plugin autostart during trial startup are unavailable.
 
-A disposable BSM 4.0.0b7 same-version repair smoke test exercised the real HTTP authentication, graceful shutdown, checkpoint, version selection, restart, and health sequence. Its service adapter simulated systemd and translated the executor's procfs namespace. Actual Proxmox LXC/systemd behavior still requires deployment validation.
-
-Git sources, scheduled updates/maintenance windows, installation/provisioning automation, backend maintenance-mode integration, and the independent authenticated web interface remain subsequent milestones.
+For Git targets, prepare and register an exact commit first, then use `upgrade --installation INSTALLATION_ID`. See [Git sources and cleanup](sources-cleanup.md). Supervisor package updates use the separate [supervisor update procedure](update-supervisor.md).

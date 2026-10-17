@@ -10,9 +10,10 @@ on the host.
 
 ## Launch the wizard
 
-Because this repository is private, download it with a read-only GitHub token:
+Because this repository is private, download it with a GitHub token scoped to this repository with **Contents: read-only** permission:
 
 ```bash
+REVISION=dev # Or a full commit SHA for a fixed revision.
 read -r -s -p 'GitHub token: ' GH_TOKEN
 printf '\n'
 export GH_TOKEN
@@ -20,18 +21,18 @@ installer=$(mktemp /tmp/bsm-supervisor-proxmox-XXXXXXXX.sh)
 if [[ $GH_TOKEN =~ ^[A-Za-z0-9_]+$ ]] && \
     printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/vnd.github.raw+json"\n' "$GH_TOKEN" | \
     curl --config - --fail --silent --show-error --proto '=https' \
-    'https://api.github.com/repos/DMedina559/bsm-supervisor/contents/scripts/provision-proxmox.sh?ref=dev' \
+    "https://api.github.com/repos/DMedina559/bsm-supervisor/contents/scripts/provision-proxmox.sh?ref=$REVISION" \
     -o "$installer"; then
-    bash "$installer"
+    bash "$installer" --ref "$REVISION" --interactive
 fi
 rm -f "$installer"
-unset GH_TOKEN
+unset GH_TOKEN REVISION
 ```
 
 With a local checkout, run `bash scripts/provision-proxmox.sh` directly. No
 arguments and a terminal launch the wizard automatically. `--interactive` also
-opens the wizard when combining options. Pin both download URLs/references to a
-full commit SHA instead of `dev` if you want an immutable source revision.
+opens the wizard when combining options. Set `REVISION` to a full commit SHA to pin the script and source archive to an
+immutable revision.
 
 1. Choose **Default** or **Advanced** settings.
 2. Select container disk storage and template storage from this node's active
@@ -47,7 +48,7 @@ The next available cluster guest ID is suggested. Advanced mode lets you change
 ID, hostname, resources, bridge, static IPv4/gateway, DNS, VLAN, autostart, and the
 supervisor source revision and BSM bind address. Storage menus appear in both modes.
 The default BSM bind is `0.0.0.0`, supplied through the native container environment
-as `HOST`, alongside PORT and all four public BSM bootstrap variables. See [listener configuration](listener-environment.md)
+as `HOST`, alongside `PORT` and all four public BSM bootstrap variables. See [listener configuration](listener-environment.md)
 for the complete variable table and existing-container migration.
 Pass `--bsm-env-file /root/bsm-env.json` to customize all public variables; use
 [the example JSON](../config/proxmox-env.example.json) as a starting point.
@@ -68,11 +69,11 @@ bash scripts/provision-proxmox.sh --dry-run
 bash scripts/provision-proxmox.sh --ctid 120 --storage local-lvm \
     --bridge vmbr0 --cores 4 --memory 4096 --disk 64 --onboot
 bash scripts/provision-proxmox.sh --ctid 120 --storage local-zfs \
-    --ip 192.168.10.20/24 --gateway 192.168.10.1 \
-    --nameserver 192.168.10.2 --vlan 10
+    --ip 192.0.2.20/24 --gateway 192.0.2.1 \
+    --nameserver 192.0.2.2 --vlan 10
 ```
 
-Use your actual network/storage values. Preview any command with `--dry-run`.
+The static-address example uses documentation-only addresses. Substitute your actual network/storage values and an unused guest ID. Preview any command with `--dry-run`.
 Dry runs only inspect the host and print a quoted `pct create` command: they do
 not refresh/download templates, request credentials, create guests, or install
 anything. Automatic template previews use the cached `pveam available` catalog;
@@ -104,7 +105,6 @@ After completion, enter the new container with `pct enter ID`. The supervisor,
 its configuration/journal, and the managed BSM unit are installed. BSM itself is
 not installed, enabled, or started: finish the version selection, BSM account
 setup, and readiness-token configuration in [LXC installation](install-lxc.md).
-There is no supervisor web dashboard yet.
 
 If creation/start/bootstrap fails, the script reports the ID and retains the
 container for inspection. It never automatically destroys a container or disk.
@@ -120,37 +120,22 @@ bash /root/bsm-supervisor-bootstrap/scripts/install-lxc.sh \
 After a successful retry, remove the bootstrap directory yourself. Do not run the
 host creation script again with an existing ID; it intentionally refuses reuse.
 
-The command plans, validation, wizard, and archive checks are tested with a fake
-Proxmox command interface. A real Proxmox host/LXC run remains necessary for field
-validation. The implementation follows the official
-[`pct` documentation](https://pve.proxmox.com/pve-docs/pct.1.html).
+## Troubleshooting
 
-## Root DNS works but APT cannot resolve
+For provisioning options, use `bash scripts/provision-proxmox.sh --help` and the
+[Proxmox pct reference](https://pve.proxmox.com/pve-docs/pct.1.html).
 
-Older provisioner revisions applied the host's private `umask 077` to `pct`.
-Proxmox template extraction can inherit that mask and leave `/etc` inaccessible
-to the `_apt` download account. Current revisions run every `pct` command with
-`umask 022` inside a subshell while retaining private host credential permissions.
-The LXC installer also checks resolver-file access as `_apt`, stops on any APT
-index-update error, and skips unnecessary recommended distribution packages.
-
-For an affected fresh container, inspect permissions and test the download user
-from the host (replace 101 with the actual ID):
+If package installation reports DNS failures, test inside the container as both
+root and APT's download account:
 
 ```sh
-pct exec 101 -- stat -c '%a %U:%G %n' / /etc /etc/resolv.conf /etc/nsswitch.conf /etc/hosts
-pct exec 101 -- runuser -u _apt -- getent ahostsv4 deb.debian.org
+getent ahostsv4 deb.debian.org
+runuser -u _apt -- getent ahostsv4 deb.debian.org
+stat -c '%a %U:%G %n' / /etc /etc/resolv.conf /etc/nsswitch.conf /etc/hosts
 ```
 
-If `/etc` or those public resolver files have restrictive permissions, restore
-normal access to those specific paths, without recursive permission changes:
-
-```sh
-pct exec 101 -- chmod 755 /etc
-pct exec 101 -- chmod 644 /etc/resolv.conf /etc/nsswitch.conf /etc/hosts
-pct exec 101 -- runuser -u _apt -- getent ahostsv4 deb.debian.org
-```
-
-Once that succeeds, retry the retained bootstrap as described above. For a fresh
-container whose BSM unit has not been created yet, include `--install-bsm-unit`.
-A root-only successful lookup does not establish that APT can resolve names.
+If only the root lookup succeeds, check directory traversal and resolver-file
+read permissions for `_apt`. Correct the specific inaccessible paths according
+to the distribution defaults; avoid recursive permission changes. If both lookups
+fail, inspect the container's DNS, route, bridge, and firewall configuration.
+Retry the retained bootstrap after resolving the failure.

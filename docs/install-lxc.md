@@ -12,13 +12,15 @@ To create the container from the Proxmox host instead, use the
 ## Private repository download
 
 The repository is private, so a plain unauthenticated raw URL will return 404.
-Use a GitHub token with read access to this repository. Paste the following into
+Use a fine-grained GitHub token scoped to this repository with **Contents: read-only**
+permission (or an equivalent repository read credential). Paste the following into
 the LXC console. The token is read without echo and is not placed in command
 arguments or saved in shell history.
 
 ```bash
 apt-get update
 apt-get install -y curl ca-certificates
+REVISION=dev # Or a full commit SHA for a fixed revision.
 read -r -s -p 'GitHub token: ' GH_TOKEN
 printf '\n'
 export GH_TOKEN
@@ -26,15 +28,15 @@ installer=$(mktemp /tmp/bsm-supervisor-install-XXXXXXXX.sh)
 if [[ $GH_TOKEN =~ ^[A-Za-z0-9_]+$ ]] && \
     printf 'header = "Authorization: Bearer %s"\nheader = "Accept: application/vnd.github.raw+json"\n' "$GH_TOKEN" | \
     curl --config - --fail --silent --show-error --proto '=https' \
-    'https://api.github.com/repos/DMedina559/bsm-supervisor/contents/scripts/install-lxc.sh?ref=dev' \
+    "https://api.github.com/repos/DMedina559/bsm-supervisor/contents/scripts/install-lxc.sh?ref=$REVISION" \
     -o "$installer"; then
-    bash "$installer" --ref dev --install-bsm-unit
+    bash "$installer" --ref "$REVISION" --install-bsm-unit
 fi
 rm -f "$installer"
-unset GH_TOKEN
+unset GH_TOKEN REVISION
 ```
 
-Use a full commit SHA instead of `dev` in both places to install a fixed revision.
+Set `REVISION` to a full commit SHA to install a fixed revision.
 `dev` is the current development branch. Downloading the script first also lets
 you inspect it before running it.
 
@@ -64,18 +66,18 @@ when adopting an existing unit. Generate and review a candidate with:
 bsm-supervisor unit --user bsm > /tmp/bedrock-server-manager-webui.service
 ```
 
-Match the generated ExecStart, conditions, and environment settings when adopting
-a unit. Merely keeping an old BSM service command will fail the offline checks.
-The installer neither enables nor starts BSM. There is no always-running
-supervisor daemon in this milestone: the supervisor is the operator CLI, journal,
-checkpoint manager, and guarded systemd integration.
+Before installing a replacement unit, stop BSM and generate its private environment
+file. Follow the complete [managed unit procedure](update-supervisor.md#refresh-the-managed-unit);
+rendering the unit alone does not create that file.
+The installer neither enables nor starts BSM. The supervisor provides a local CLI, journal, checkpoint manager, and guarded systemd integration.
 
 ## First BSM startup
 
-For a fresh container, prepare a prerelease and inspect its installation ID:
+For a fresh container, choose a release channel and inspect its installation ID.
+Use `prerelease` instead of `stable` if you want a preview release:
 
 ```sh
-bsm-supervisor install prerelease
+bsm-supervisor install stable
 bsm-supervisor installations
 bsm-supervisor activate INSTALLATION_ID --offline-confirmed
 bsm-supervisor start
@@ -86,7 +88,7 @@ initial account/setup flow, then create a BSM bearer token for authenticated
 readiness. Save it as a root-owned regular file with mode 0600, and set
 `api_token_file` in supervisor configuration. The installer cannot create an
 application token before BSM has been initialized. BSM 4.0 is required for the
-audited coordinated upgrade/runtime shutdown flow.
+coordinated upgrade and runtime shutdown flow.
 
 ## Git upgrades
 
@@ -112,7 +114,7 @@ checkpoint restoration when returning to the original version and data.
 ## Reinstalling the supervisor
 
 See [updating the supervisor](update-supervisor.md) for a complete private-repository
-download and the managed environment/unit migration.
+download and managed unit refresh.
 
 Run the same installer without `--install-bsm-unit` to preserve an existing unit.
 Each run creates a fresh permanent supervisor environment and publishes the CLI
@@ -127,10 +129,6 @@ For an existing local checkout, skip the repository download:
 ```sh
 bash scripts/install-lxc.sh --source-dir "$PWD" --install-bsm-unit
 ```
-
-Shell validation and simulated upgrade recovery tests run in CI. A complete root
-bootstrap, application setup, and upgrade on a real Proxmox LXC still need field
-validation.
 
 See [BSM listener and Proxmox environment](listener-environment.md) for LAN binding,
 native environment settings, and updating an existing managed unit.

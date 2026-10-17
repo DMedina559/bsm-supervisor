@@ -43,4 +43,3 @@ failure, run the same command again. After controller termination, inspect histo
 and acknowledge the interrupted cleanup with `--service-checked`, then retry the
 same ID. Never delete cleanup records manually while deletion is incomplete.
 World data, configuration, and checkpoint payloads are outside the deletion scope.
-Actual Proxmox LXC/systemd validation remains required before production use.

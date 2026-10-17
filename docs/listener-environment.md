@@ -46,10 +46,8 @@ accepted. Keep custom files outside the source checkout. Database URLs are not
 included in the printed command plan or process arguments. Native environment
 entries remain visible to users authorized to inspect the container configuration.
 
-The script calls Proxmox's native CLI handler in-process to pass its NUL-separated
-environment list correctly. A shell argument cannot contain those NUL bytes.
-This uses Proxmox's configuration locking and validation, rather than editing
-`/etc/pve/lxc/ID.conf` directly. New container defaults are:
+The provisioner applies settings through Proxmox configuration validation and
+locking. New container defaults are:
 
 ```json
 {
@@ -92,7 +90,7 @@ A changed environment blocks maintenance until the stopped-service
 configuration is regenerated. Unconfigured DB/log environment values are cleared
 so an unrelated inherited value cannot silently change the application database.
 
-Local file-backed SQLite remains required for supervisor checkpoints and automatic
+Local file-backed SQLite remains required for supervisor checkpoints and coordinated
 upgrade recovery. External database URLs can be passed to BSM, but their driver
 extras must be installed in the selected BSM environment and checkpoint workflows
 refuse them. URI/query SQLite options and uncovered database files are also
@@ -100,13 +98,22 @@ rejected by checkpoint inspection. Readiness tokens still use `api_token_file`.
 
 ## Apply changed settings
 
-With the latest supervisor installed, edit the native environment or TOML. For
-TOML, the equivalent keys are `bsm_config_dir`, `data_dir`, `bsm_db_url`,
-`bsm_log_level`, `bsm_host`, and `bsm_port`. Then, inside the container:
+Stop BSM gracefully **before changing its paths or listener settings**, so shutdown
+can still locate the current runtime:
+
+```sh
+bsm-supervisor graceful-stop
+```
+
+Skip this command if BSM is already stopped. Resolve shutdown failures before
+continuing. Then edit TOML or the native environment. TOML keys are
+`bsm_config_dir`, `data_dir`, `bsm_db_url`, `bsm_log_level`, `bsm_host`, and
+`bsm_port`. Native environment edits require a full container stop/start before
+the new values are visible; keep the BSM unit stopped during configuration.
+After applying the settings, run inside the container:
 
 ```sh
 bsm-supervisor check
-bsm-supervisor graceful-stop
 bsm-supervisor service-environment --offline-confirmed
 bsm-supervisor unit --user bsm > /tmp/bedrock-server-manager-webui.service
 systemd-analyze verify --man=no /tmp/bedrock-server-manager-webui.service
