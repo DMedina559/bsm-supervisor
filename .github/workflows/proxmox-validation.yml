@@ -40,7 +40,7 @@ jobs:
             --bsm-commit "$VALIDATION_BSM_COMMIT" --source-dir "$GITHUB_WORKSPACE" \
             --storage "$VALIDATION_STORAGE" --template-storage "$VALIDATION_TEMPLATE_STORAGE" \
             --disposable-confirmed | tee proxmox-validation.log
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: proxmox-validation-log
