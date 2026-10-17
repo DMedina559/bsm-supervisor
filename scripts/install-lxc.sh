@@ -118,11 +118,27 @@ print(tag)
 PYTAG
 )
     fi
-    github_download "https://api.github.com/repos/DMedina559/bsm-supervisor/tarball/$ref" "$work/source.tar.gz"
+    # Resolve once; archive directory names may contain only an abbreviated SHA.
+    github_download "https://api.github.com/repos/DMedina559/bsm-supervisor/commits/$ref" "$work/commit.json"
+    resolved_revision=$(python3 - "$work/commit.json" "$ref" <<'PYCOMMIT'
+import json, re, sys
+value = json.load(open(sys.argv[1]))
+revision = value.get('sha') if isinstance(value, dict) else None
+if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision):
+    raise SystemExit('GitHub did not return a full source revision')
+if re.fullmatch(r'[0-9a-f]{40}', sys.argv[2]) and revision != sys.argv[2]:
+    raise SystemExit('GitHub source revision differs from requested commit')
+print(revision)
+PYCOMMIT
+)
+    github_download "https://api.github.com/repos/DMedina559/bsm-supervisor/tarball/$resolved_revision" "$work/source.tar.gz"
     rm -f "$work/auth"
-    python3 - "$work" <<'PY'
-import pathlib, sys, tarfile
+    python3 - "$work" "$resolved_revision" "$ref" <<'PYSOURCE'
+import json, pathlib, re, sys, tarfile
 work = pathlib.Path(sys.argv[1])
+revision, requested = sys.argv[2:]
+if not re.fullmatch(r'[0-9a-f]{40}', revision):
+    raise SystemExit('Invalid resolved source revision')
 with tarfile.open(work / 'source.tar.gz') as archive:
     for entry in archive.getmembers():
         path = pathlib.PurePosixPath(entry.name)
@@ -133,8 +149,13 @@ with tarfile.open(work / 'source.tar.gz') as archive:
 roots = list((work / 'source').iterdir())
 if len(roots) != 1 or not (roots[0] / 'pyproject.toml').is_file():
     raise SystemExit('Invalid source checkout')
+match = re.fullmatch(r'DMedina559-bsm-supervisor-([0-9a-f]{7,40})', roots[0].name)
+if match is None or not revision.startswith(match.group(1)):
+    raise SystemExit('Source archive identity differs from the resolved commit')
+record = {'source': 'github', 'ref': requested, 'revision': revision, 'dirty': None}
+(roots[0] / 'supervisor-source.json').write_text(json.dumps(record) + '\n')
 (work / 'source-path').write_text(str(roots[0]))
-PY
+PYSOURCE
     source_dir=$(cat "$work/source-path")
 fi
 unset GH_TOKEN

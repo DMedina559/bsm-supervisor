@@ -16,18 +16,20 @@ class BootstrapArchiveTests(unittest.TestCase):
         self.base = Path(self.temp.name)
         self.work = self.base / "work"
         self.work.mkdir()
+        self.revision = "a" * 40
+        self.checkout_name = "DMedina559-bsm-supervisor-" + self.revision[:7]
         # Exercise the exact embedded program: the downloaded shell script must
         # remain standalone before the supervisor package has been installed.
         installer = Path(__file__).resolve().parents[1] / "scripts/install-lxc.sh"
         self.program = (
             installer.read_text()
-            .split("python3 - \"$work\" <<'PY'\n", 1)[1]
-            .split("\nPY\n", 1)[0]
+            .split("<<'PYSOURCE'\n", 1)[1]
+            .split("\nPYSOURCE\n", 1)[0]
         )
 
     def archive(self, extra=None):
         with tarfile.open(self.work / "source.tar.gz", "w:gz") as archive:
-            entry = tarfile.TarInfo("repo/pyproject.toml")
+            entry = tarfile.TarInfo(self.checkout_name + "/pyproject.toml")
             contents = b"[project]\nname = 'bsm-supervisor'\n"
             entry.size = len(contents)
             archive.addfile(entry, io.BytesIO(contents))
@@ -36,7 +38,15 @@ class BootstrapArchiveTests(unittest.TestCase):
 
     def run_extractor(self):
         return subprocess.run(
-            [sys.executable, "-I", "-c", self.program, str(self.work)],
+            [
+                sys.executable,
+                "-I",
+                "-c",
+                self.program,
+                str(self.work),
+                self.revision,
+                "dev",
+            ],
             capture_output=True,
             text=True,
         )
@@ -46,9 +56,12 @@ class BootstrapArchiveTests(unittest.TestCase):
         result = self.run_extractor()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
-            (self.work / "source-path").read_text(), str(self.work / "source/repo")
+            (self.work / "source-path").read_text(),
+            str(self.work / "source" / self.checkout_name),
         )
-        self.assertTrue((self.work / "source/repo/pyproject.toml").is_file())
+        self.assertTrue(
+            (self.work / "source" / self.checkout_name / "pyproject.toml").is_file()
+        )
 
     def test_traversal_is_rejected_before_any_extraction(self):
         self.archive(tarfile.TarInfo("../../escaped"))
