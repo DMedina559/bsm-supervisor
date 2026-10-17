@@ -127,6 +127,22 @@ class InstallationTests(unittest.TestCase):
         self.assertEqual(self.store.operations()[0]["state"], "failed")
         self.assertTrue((root / "release-4.0.0b7").is_dir())
 
+    @patch("bsm_supervisor.install.run_command")
+    def test_reuse_refuses_changed_metadata_and_unregistered_directories(self, run):
+        run.side_effect = self.fake_command
+        install(self.config, self.store, Release("4.0.0b7"))
+        target = self.config.installations_dir / "release-4.0.0b7"
+        (target / "supervisor-installation.json").write_text("{}")
+        run.reset_mock()
+        with self.assertRaisesRegex(ReleaseError, "metadata"):
+            install(self.config, self.store, Release("4.0.0b7"))
+        run.assert_not_called()
+        other = self.config.installations_dir / "release-9.0.0"
+        other.mkdir()
+        with self.assertRaisesRegex(ReleaseError, "unregistered"):
+            install(self.config, self.store, Release("9.0.0"))
+        self.assertTrue(other.is_dir())
+
     @patch("bsm_supervisor.install.subprocess.Popen")
     @patch("bsm_supervisor.install.os.killpg")
     def test_timeout_kills_command_group(self, killpg, popen):

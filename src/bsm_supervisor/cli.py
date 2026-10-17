@@ -296,10 +296,9 @@ def main(argv: list[str] | None = None) -> int:
                     service.control(args.command)
                     if args.command in ("start", "restart"):
                         state = service.status()
-                        if (
-                            state.get("ActiveState") != "active"
-                            or state.get("MainPID") in (None, "", "0")
-                        ):
+                        if state.get("ActiveState") != "active" or state.get(
+                            "MainPID"
+                        ) in (None, "", "0"):
                             raise ServiceError(
                                 "BSM did not remain running; inspect status and "
                                 f"journalctl -u {config.service_unit}"

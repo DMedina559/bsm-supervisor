@@ -62,9 +62,7 @@ class SetupTests(unittest.TestCase):
                 "ActiveState": "activating",
                 "MainPID": "0",
             }
-            self.assertEqual(
-                main(["--config", str(self.config_file), "start"]), 1
-            )
+            self.assertEqual(main(["--config", str(self.config_file), "start"]), 1)
         self.assertIn("did not remain running", error.getvalue())
         self.assertEqual(self.store.operations()[0]["state"], "running")
 
