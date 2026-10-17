@@ -70,7 +70,9 @@ def control_record(config: Config, status: dict[str, str]) -> dict:
     if type(pid) is not int or str(pid) != status.get("MainPID"):
         raise RuntimeErrorBase("Runtime record does not match the managed service PID")
     if info.st_uid != process_owner(pid):
-        raise RuntimeErrorBase("Runtime control record owner differs from service owner")
+        raise RuntimeErrorBase(
+            "Runtime control record owner differs from service owner"
+        )
     ticks = int(process_generation(pid))
     boot = next(
         int(line.split()[1])

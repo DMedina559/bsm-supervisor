@@ -155,6 +155,15 @@ class RuntimeTests(unittest.TestCase):
             patch("bsm_supervisor.runtime.Path.read_bytes", return_value=command),
         ):
             runtime.control_record(self.config, {"MainPID": "99"})
+            with patch(
+                "bsm_supervisor.runtime.process_owner", return_value=os.geteuid() + 1
+            ):
+                with self.assertRaisesRegex(runtime.RuntimeErrorBase, "owner"):
+                    runtime.control_record(self.config, {"MainPID": "99"})
+            path.chmod(0o644)
+            with self.assertRaisesRegex(runtime.RuntimeErrorBase, "permissions"):
+                runtime.control_record(self.config, {"MainPID": "99"})
+            path.chmod(0o600)
             with self.assertRaisesRegex(runtime.RuntimeErrorBase, "PID"):
                 runtime.control_record(self.config, {"MainPID": "98"})
             self.record["created_at"] = 0
