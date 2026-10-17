@@ -18,7 +18,7 @@
   <script defer="" src="/admin.js"></script>
  </head>
  <body>
-  <a class="skip-link" href="#page-title">
+  <a class="skip-link" href="#main-content">
    Skip to workspace
   </a>
   <header class="topbar">
@@ -58,7 +58,7 @@
     Lock console
    </button>
   </header>
-  <main>
+  <main id="main-content" tabindex="-1">
    <form class="login-wrapper" id="login">
     <span class="login-emblem">
      <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
@@ -279,8 +279,9 @@
           BSM service
          </h2>
         </div>
-        <p aria-live="polite" id="autostart-summary" role="status"></p>
         <div class="service-state" id="service"></div>
+<p aria-live="polite" id="autostart-summary" role="status"></p>
+        
         <p class="hint">
          Start checks the managed process. Application readiness is verified separately with the health command.
         </p>
