@@ -84,3 +84,17 @@ test('browser archive upload and authenticated download use opaque transfer IDs'
  await page.locator('#archive-password').fill('private password value');await page.locator('[data-section="system"]').click();await page.locator('#github-token').fill('github_secret');
  await page.locator('#logout').click();await expect(page.locator('#archive-password')).toHaveValue('');await expect(page.locator('#github-token')).toHaveValue('');
 });
+
+test('lifecycle coupling can be configured separately from automatic startup',async({page})=>{
+ await login(page);
+ await page.locator('[data-section="settings"]').click();
+ await expect(page.locator('#setting-stop_bsm_with_supervisor')).not.toBeChecked();
+ await expect(page.locator('#setting-web_auto_start')).toBeChecked();
+ await page.locator('#setting-stop_bsm_with_supervisor').check();
+ page.on('dialog',dialog=>dialog.accept());
+ await page.route('**/api/actions',route=>route.fulfill({status:202,json:{id:'f'.repeat(32),action:'settings-save'}}));
+ const payload=page.waitForRequest(request=>request.url().endsWith('/api/actions'));
+ await page.locator('#settings-form button').click();
+ expect((await payload).postDataJSON()).toMatchObject({action:'settings-save',settings:{stop_bsm_with_supervisor:true},confirmed:true});
+ await expect(page.locator('#setting-web_auto_start')).toBeChecked();
+});

@@ -188,6 +188,7 @@ class Console:
         self.token_file = token_file
         self.origin = origin
         self.transfer_lock = threading.Lock()
+        self.shutdown_event = threading.Event()
         self.auto_start = {
             "state": "waiting",
             "reason": "Waiting for console listener readiness",
@@ -582,6 +583,7 @@ async def run_server(server, app: Console) -> None:
     try:
         await server.serve()
     finally:
+        app.shutdown_event.set()
         startup.cancel()
         await asyncio.gather(startup, return_exceptions=True)
 

@@ -207,11 +207,12 @@ the previous policy privately and refuse active scheduled jobs or foreign units.
 Configure an HTTPS webhook without revealing its saved URL; use a notification
 schedule for automatic delivery and retry of completion events.
 
-**Settings** edits supported timeouts, transfer limits, console autostart and BSM
-listener, port, log level and database URL. Existing database URLs are concealed;
+**Settings** edits supported timeouts, transfer limits, console autostart, lifecycle
+coupling and BSM listener, port, log level and database URL. Existing database URLs
+are concealed;
 a blank replacement leaves them unchanged. Proxmox/environment overrides are
-shown and cannot be replaced through the form. Runtime listener/database changes
-require BSM to be stopped and refresh the managed unit without starting it. The
+shown and cannot be replaced through the form. Runtime listener, database and
+lifecycle changes require BSM to be stopped and refresh the managed unit without starting it. The
 previous TOML file is retained privately as `state_dir/config-before-console.toml`.
 If unit refresh fails, inspect history and use **Refresh managed unit** after
 resolving the failure. Storage paths and service identity are read-only.
@@ -229,3 +230,32 @@ Health checks, service logs and diagnostics appear in **Action output**, with a
 downloadable last report. Read-only checks remain available for interrupted
 console jobs. Acknowledging a console job checks its process lease and does not
 acknowledge underlying operations or perform service/data recovery.
+
+## Couple BSM to the supervisor console
+
+By default, stopping the console leaves BSM running. Enable **Stop BSM when the
+supervisor console stops** in Settings to tie BSM to the standard
+`bsm-supervisor-console.service`. Stop BSM before saving this setting; saving
+refreshes its managed unit and leaves BSM stopped.
+
+With coupling enabled, systemd stops BSM when the console stops or fails. It sends
+SIGTERM through the managed service and allows its configured shutdown timeout
+before terminating remaining processes. This also applies during a console
+restart. **Start BSM after console startup** independently controls whether BSM
+starts again; normal recovery and maintenance guards still apply. If shutdown is
+still in progress after a console failure, startup waits within `service_timeout`
+before checking those guards. A timeout leaves BSM stopped for inspection.
+
+For CLI configuration, set `stop_bsm_with_supervisor = true` in the supervisor
+TOML file while BSM is stopped, then run:
+
+```bash
+bsm-supervisor unit-refresh --offline-confirmed
+bsm-supervisor start
+```
+
+Set it to `false` and refresh the unit while stopped to return to independent
+operation. Coupling requires the generated standard console service; a console
+started manually in a shell or under a custom unit does not satisfy that
+systemd dependency. Starting BSM with coupling enabled also starts its console
+dependency. It does not grant access to either web interface.

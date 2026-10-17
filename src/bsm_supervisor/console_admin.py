@@ -44,9 +44,16 @@ SETTINGS = {
     "service_timeout",
     "web_job_timeout",
     "web_auto_start",
+    "stop_bsm_with_supervisor",
     "web_transfer_limit",
 }
-RUNTIME_SETTINGS = {"bsm_host", "bsm_port", "bsm_log_level", "bsm_db_url"}
+RUNTIME_SETTINGS = {
+    "bsm_host",
+    "bsm_port",
+    "bsm_log_level",
+    "bsm_db_url",
+    "stop_bsm_with_supervisor",
+}
 SCHEMAS = {
     "backup-create": set(),
     "backup-restore": {"target", "digest", "restart_after"},

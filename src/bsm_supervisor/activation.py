@@ -30,10 +30,16 @@ def service_unit(config: Config, user: str) -> str:
             )
     command = managed_command(config)
     guard = guard_command(config)
+    lifecycle = (
+        "BindsTo=bsm-supervisor-console.service\n"
+        "After=bsm-supervisor-console.service\n"
+        if config.stop_bsm_with_supervisor
+        else ""
+    )
     return f"""[Unit]
 Description=Bedrock Server Manager (BSM Supervisor)
 After=network.target
-StartLimitIntervalSec=300
+{lifecycle}StartLimitIntervalSec=300
 StartLimitBurst=3
 
 [Service]

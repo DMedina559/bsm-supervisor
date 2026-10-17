@@ -181,6 +181,14 @@ def require_managed(config: Config, state: dict[str, str]) -> None:
     )
     if state.get("EnvironmentFiles", "").strip() != expected_environment:
         raise ValueError("Managed service lacks its pinned environment file")
+    if any(
+        ("bsm-supervisor-console.service" in state.get(key, "").split())
+        != config.stop_bsm_with_supervisor
+        for key in ("BindsTo", "After")
+    ):
+        raise ValueError(
+            "Refresh the managed unit to apply supervisor lifecycle coupling"
+        )
     command = state.get("ExecStart", "")
     expected = managed_command(config)
     if (
