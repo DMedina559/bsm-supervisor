@@ -344,11 +344,27 @@ print(tag)
 PYTAG
 )
     fi
-    github_download "https://api.github.com/repos/DMedina559/bsm-supervisor/tarball/$ref" "$work/source.tar.gz"
+    # Resolve once; archive directory names may contain only an abbreviated SHA.
+    github_download "https://api.github.com/repos/DMedina559/bsm-supervisor/commits/$ref" "$work/commit.json"
+    resolved_revision=$(python3 - "$work/commit.json" "$ref" <<'PYCOMMIT'
+import json, re, sys
+value = json.load(open(sys.argv[1]))
+revision = value.get('sha') if isinstance(value, dict) else None
+if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision):
+    raise SystemExit('GitHub did not return a full source revision')
+if re.fullmatch(r'[0-9a-f]{40}', sys.argv[2]) and revision != sys.argv[2]:
+    raise SystemExit('GitHub source revision differs from requested commit')
+print(revision)
+PYCOMMIT
+)
+    github_download "https://api.github.com/repos/DMedina559/bsm-supervisor/tarball/$resolved_revision" "$work/source.tar.gz"
     rm -f "$work/auth"
-    python3 - "$work" <<'PY'
-import pathlib, sys, tarfile
+    python3 - "$work" "$resolved_revision" "$ref" <<'PYSOURCE'
+import json, pathlib, re, sys, tarfile
 work = pathlib.Path(sys.argv[1])
+revision, requested = sys.argv[2:]
+if not re.fullmatch(r'[0-9a-f]{40}', revision):
+    raise SystemExit('Invalid resolved source revision')
 with tarfile.open(work / 'source.tar.gz') as archive:
     for entry in archive.getmembers():
         path = pathlib.PurePosixPath(entry.name)
@@ -357,10 +373,15 @@ with tarfile.open(work / 'source.tar.gz') as archive:
     options = {'filter': 'data'} if hasattr(tarfile, 'data_filter') else {}
     archive.extractall(work / 'source', **options)
 roots = list((work / 'source').iterdir())
-if len(roots) != 1:
+if len(roots) != 1 or not (roots[0] / 'pyproject.toml').is_file():
     raise SystemExit('Invalid source checkout')
+match = re.fullmatch(r'DMedina559-bsm-supervisor-([0-9a-f]{7,40})', roots[0].name)
+if match is None or not revision.startswith(match.group(1)):
+    raise SystemExit('Source archive identity differs from the resolved commit')
+record = {'source': 'github', 'ref': requested, 'revision': revision, 'dirty': None}
+(roots[0] / 'supervisor-source.json').write_text(json.dumps(record) + '\n')
 (work / 'source-path').write_text(str(roots[0]))
-PY
+PYSOURCE
     source_dir=$(cat "$work/source-path")
 fi
 unset GH_TOKEN
@@ -376,7 +397,17 @@ if not match and (source / '.git').exists() and shutil.which('git'):
     if result.returncode == 0 and re.fullmatch(r'[0-9a-f]{40}', result.stdout.strip()):
         revision = result.stdout.strip()
         dirty = bool(subprocess.run(['git', '-C', str(source), 'status', '--porcelain'], capture_output=True, text=True).stdout)
-output.write_text(json.dumps({'source': 'github' if match else 'local', 'ref': requested, 'revision': revision, 'dirty': dirty}))
+record = {'source': 'github' if match else 'local', 'ref': requested, 'revision': revision, 'dirty': dirty}
+if not match and not (source / '.git').exists() and (source / 'supervisor-source.json').is_file():
+    supplied = json.loads((source / 'supervisor-source.json').read_text())
+    if (supplied.get('source') not in ('github', 'local')
+            or (supplied.get('revision') is not None and not re.fullmatch(r'[0-9a-f]{40}', str(supplied['revision'])))
+            or not isinstance(supplied.get('ref'), str)
+            or len(supplied['ref']) > 255
+            or supplied.get('dirty') not in (None, True, False)):
+        raise SystemExit('Invalid supervisor source provenance')
+    record = {key: supplied.get(key) for key in ('source', 'ref', 'revision', 'dirty')}
+output.write_text(json.dumps(record))
 PYPROVENANCE
 # Copy only installation inputs; credentials, venvs, Git metadata and local data stay on host.
 tar --create --gzip --file "$work/bootstrap.tar.gz" --directory "$source_dir" \
