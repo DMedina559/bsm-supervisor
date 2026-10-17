@@ -105,3 +105,12 @@ command does not require a supervisor configuration file.
 
 For updates, see [updating the supervisor](update-supervisor.md). For a complete
 container lifecycle exercise, see [Proxmox validation](validation.md).
+
+## BSM and supervisor lifecycle
+
+Console startup can automatically start BSM (`web_auto_start`, default `true`).
+Stopping the console leaves BSM running unless `stop_bsm_with_supervisor` is
+`true`. The optional coupling uses the generated standard console systemd service
+and also stops BSM on console failure or restart. Change it while BSM is stopped
+and refresh the managed unit, or use Settings in the web console. See
+[console lifecycle settings](web-console.md#couple-bsm-to-the-supervisor-console).

@@ -27,6 +27,7 @@ class Config:
     bsm_log_level: str | None = None
     web_job_timeout: int = 3600
     web_auto_start: bool = True
+    stop_bsm_with_supervisor: bool = False
     web_transfer_limit: int = 10 * 1024**3
 
     @property
@@ -67,6 +68,13 @@ class Config:
             or not 1024 <= self.web_transfer_limit <= 1024**4
         ):
             raise ValueError("web_transfer_limit must be between 1024 bytes and 1 TiB")
+        if type(self.stop_bsm_with_supervisor) is not bool:
+            raise ValueError("stop_bsm_with_supervisor must be a boolean")
+        if (
+            self.stop_bsm_with_supervisor
+            and self.service_unit == "bsm-supervisor-console.service"
+        ):
+            raise ValueError("BSM and console units must be different")
         if type(self.web_auto_start) is not bool:
             raise ValueError("web_auto_start must be a boolean")
         if (
@@ -126,6 +134,7 @@ class Config:
             "service_timeout",
             "web_job_timeout",
             "web_auto_start",
+            "stop_bsm_with_supervisor",
             "web_transfer_limit",
             "bsm_config_dir",
             "checkpoint_paths",

@@ -1,5 +1,8 @@
 """Recovery-aware, one-shot BSM startup after the console listener becomes ready."""
 
+import threading
+import time
+
 from . import operations
 from .activation import selection
 from .checkpoint_files import read_json
@@ -72,14 +75,29 @@ def start(config: Config, store: Store) -> dict:
 def attempt(console) -> dict:
     """Queue one start, leaving final eligibility checks to the serialized child."""
     config = console.config
+    stopping = getattr(console, "shutdown_event", None)
+    if not isinstance(stopping, threading.Event):
+        stopping = threading.Event()
     if not config.web_auto_start:
         return {"state": "disabled", "reason": "Automatic BSM startup is disabled"}
     try:
+        if config.stop_bsm_with_supervisor:
+            deadline = time.monotonic() + config.service_timeout
+            while SystemdService(config).status().get("ActiveState") == "deactivating":
+                if time.monotonic() >= deadline:
+                    return {
+                        "state": "blocked",
+                        "reason": "BSM shutdown has not finished",
+                    }
+                if stopping.wait(0.2):
+                    return {"state": "skipped", "reason": "Console is shutting down"}
         store = Store(config.state_dir)
         with update_lock(config), store.lock():
             report = eligible(config, store)
         if report["state"] != "eligible":
             return report
+        if stopping.is_set():
+            return {"state": "skipped", "reason": "Console is shutting down"}
         job = console.submit({"action": "auto-start"})
         return {
             "state": "queued",
