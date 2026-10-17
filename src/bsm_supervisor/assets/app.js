@@ -7,6 +7,7 @@ function lockConsole() {
   if(document.body)document.body.dataset.connected='false';
   el('console-connection').textContent='Locked';el('connection-chip').dataset.state='locked';
   for(const id of ['sidebar-version','sidebar-installation','summary-service','summary-version','summary-backups','summary-attention','summary-service-detail','summary-version-detail','summary-backups-detail','summary-attention-detail'])el(id).textContent='';
+  if(typeof recoveryLock==='function')recoveryLock();
   if(typeof adminLock==='function')adminLock();
   el('console').hidden=true; el('logout').hidden=true; el('login').hidden=false;
   for(const id of ['events','operations','jobs','schedules','service','selected','notice','error','autostart-summary']) el(id).textContent='';
@@ -37,8 +38,7 @@ function options(id, items, label) {
 function actionLabel(action) {
   return ({'service:start':'Start BSM','service:stop':'Stop BSM','service:graceful-stop':'Graceful stop','service:restart':'Restart BSM','service:unit-refresh':'Refresh managed unit','supervisor:install':'Install supervisor','supervisor:update-preflight':'Supervisor update checks'})[action] || String(action).replaceAll(':',' · ').replaceAll('-',' ');
 }
-function renderOperationRows(items) {
-  const container=el('operations');
+function renderOperationRows(items, container=el('operations')) {
   if(!items.length){container.textContent='No operations recorded. Service and maintenance history will appear here.';return;}
   const opened=new Set([...container.querySelectorAll('details[open]')].map(row=>row.dataset.id));
   container.replaceChildren(...items.map(item=>{
@@ -51,6 +51,7 @@ function renderOperationRows(items) {
     heading.append(id,label,badge);row.append(heading);
     if(item.started_at){const time=document.createElement('time');time.className='operation-time';time.dateTime=item.started_at;time.textContent=new Date(item.started_at).toLocaleString();row.append(time);}
     if(item.detail){const detail=document.createElement('p');detail.className='operation-detail';detail.textContent=item.detail;row.append(detail);}
+    const inspect=document.createElement('button');inspect.className='action-button';inspect.textContent='Inspect #'+item.id;inspect.setAttribute('data-recovery-ack','');inspect.onclick=()=>{el('recovery').value=String(item.id);inspectOperation();};row.append(inspect);
     return row;
   }));
 }
@@ -85,12 +86,13 @@ async function refresh() {
     options('installation',state.installations,item=>item.id+' · '+item.version);
     options('checkpoint',state.checkpoints,item=>item.id+(item.invalid?' · invalid':''));
     renderOperationRows(state.operations);renderWorkspace(state);
+    if(olderBefore===null && state.operations.length)olderBefore=state.operations[state.operations.length-1].id;
     const pendingOperation=state.operations.find(item=>['running','interrupted'].includes(item.state));
     el('notice').textContent=pendingOperation ? 'Operation #'+pendingOperation.id+' needs inspection. Check its details and current service state before acknowledging in Recovery.' : '';
     const opened=new Set([...el('jobs').querySelectorAll('details[open]')].map(row=>row.dataset.id));
     el('jobs').replaceChildren(...state.jobs.map(item=>{
       const row=document.createElement('details'), summary=document.createElement('summary'), output=document.createElement('pre');
-      row.className='row'; if(['running','interrupted'].includes(item.state)) row.dataset.running='true'; row.dataset.id=item.id; row.open=opened.has(item.id); summary.textContent=actionLabel(item.action)+' · '+item.state+' · '+item.id.slice(0,8);summary.title=item.id;
+      row.className='row'; if(['running','interrupted'].includes(item.state) && item.execution_state!=='inactive') row.dataset.running='true'; row.dataset.id=item.id; row.open=opened.has(item.id); summary.textContent=actionLabel(item.action)+' · '+item.state+' · '+item.id.slice(0,8);summary.title=item.id;
       const identity=document.createElement('p');identity.className='job-identity';identity.textContent='Job '+item.id;
       row.append(summary,identity,output); if(['running','interrupted'].includes(item.state)){const acknowledge=document.createElement('button');acknowledge.className='action-button';acknowledge.textContent='Acknowledge after inspection';acknowledge.setAttribute('data-recovery-ack','');acknowledge.onclick=async()=>{if(!confirm('Confirm service and operation inspection? This only acknowledges console bookkeeping.'))return;try{await request('jobs/'+item.id+'/acknowledge',{confirmed:true});await refresh();}catch(error){el('error').textContent=error.message;}};row.append(acknowledge);} row.addEventListener('toggle',async()=>{if(row.open) {try {output.textContent=(await request('jobs/'+item.id)).output;} catch(error) {output.textContent=error.message;}}}); return row;
     }));
@@ -129,3 +131,13 @@ document.querySelectorAll('[data-action]').forEach(button=>button.onclick=async(
   try {const job=await request('actions',value); if(currentSession!==session) return; el('notice').textContent='Queued '+job.action+' · '+job.id; await refresh();} catch(error) {if(error.name!=='AbortError' && currentSession===session) el('error').textContent=error.message;} finally {if(currentSession===session) {submitting=false;updateButtons();}}
 });
 setInterval(refresh,3000);
+
+let inspectedOperation=null, inspectedUpdate=null, olderBefore=null;
+function recoveryLock(){inspectedOperation=null;inspectedUpdate=null;olderBefore=null;el('history-more').hidden=false;for(const id of ['recovery-report','older-history','update-report','deployment-info'])el(id).textContent='';}
+async function recoveryRequest(task){const currentSession=session;try{await task();}catch(error){if(error.name!=='AbortError'&&currentSession===session)el('error').textContent=error.message;}}
+async function inspectOperation(){return recoveryRequest(async()=>{const id=el('recovery').value.trim();if(!/^[1-9][0-9]{0,14}$/.test(id))throw new Error('Enter an operation ID from history.');inspectedOperation=await request('recovery/operations/'+id);el('recovery-report').textContent=JSON.stringify(inspectedOperation,null,2);});}
+el('operation-inspect').onclick=inspectOperation;
+el('operation-acknowledge').onclick=()=>recoveryRequest(async()=>{const id=el('recovery').value.trim();if(!inspectedOperation||String(inspectedOperation.operation.id)!==id)throw new Error('Inspect this operation first.');if(!confirm(inspectedOperation.effect))return;await request('recovery/operations/'+id+'/acknowledge',{confirmed:true,digest:inspectedOperation.digest});inspectedOperation=null;el('recovery-report').textContent='Interruption acknowledged. No data restored and no service restarted.';await refresh();});
+el('history-more').onclick=()=>recoveryRequest(async()=>{const report=await request('history'+(olderBefore?'?before='+olderBefore:''));const section=document.createElement('div');renderOperationRows(report.operations,section);el('older-history').append(section);olderBefore=report.next_before;el('history-more').hidden=!olderBefore;});
+el('update-inspect').onclick=()=>recoveryRequest(async()=>{inspectedUpdate=await request('recovery/update');el('update-report').textContent=JSON.stringify(inspectedUpdate,null,2);});
+el('update-cancel').onclick=()=>recoveryRequest(async()=>{if(!inspectedUpdate?.cancellable)throw new Error('Inspect the pending update first. Only an uninstalled preparing update can be cancelled.');if(!confirm(inspectedUpdate.effect))return;await request('recovery/update/cancel',{confirmed:true,digest:inspectedUpdate.digest});inspectedUpdate=null;el('update-report').textContent='Update plan archived. No rollback or service restart performed.';await refresh();});

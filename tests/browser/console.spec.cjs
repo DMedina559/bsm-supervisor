@@ -126,3 +126,16 @@ test('workspace summaries and operation details reflect authenticated state',asy
  await page.locator('#logout').click();await expect(page.locator('#console-connection')).toHaveText('Locked');
  await expect(page.locator('#sidebar-installation')).toBeEmpty();
 });
+
+test('recovery inspection works with interrupted jobs and submits inspected digest',async({page})=>{
+ const digest='a'.repeat(64);
+ await page.route('**/api/state',route=>route.fulfill({json:{service:{ActiveState:'failed',MainPID:'0'},selection:null,installations:[],checkpoints:[],operations:[{id:27,action:'service:start',state:'running',detail:'Start failed'}],jobs:[{id:'b'.repeat(32),action:'start',state:'interrupted',execution_state:'inactive'}],schedules:[]}}));
+ await page.route('**/api/recovery/operations/27',route=>route.fulfill({json:{operation:{id:27,state:'running'},service:{ActiveState:'failed',MainPID:'0'},events:[],digest,effect:'Clear bookkeeping only.'}}));
+ let acknowledged=false;
+ await page.route('**/api/recovery/operations/27/acknowledge',route=>{expect(route.request().postDataJSON()).toEqual({confirmed:true,digest});acknowledged=true;return route.fulfill({json:{acknowledged:true}});});
+ await login(page);await page.locator('#operations summary').click();await page.locator('#operations button').click();
+ await expect(page.locator('#recovery-report')).toContainText('MainPID');
+ page.on('dialog',dialog=>dialog.accept());await page.locator('#operation-acknowledge').click();
+ await expect.poll(()=>acknowledged).toBeTruthy();
+ await expect(page.locator('#recovery-report')).toContainText('No data restored');
+});

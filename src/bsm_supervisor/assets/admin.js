@@ -42,6 +42,7 @@ function renderAdmin(state){
   if(!adminState.settingsLoaded){for(const [key,value] of Object.entries(state.settings.values)){const input=field('setting-'+key);if(!input)continue;if(input.type==='checkbox')input.checked=value;else input.value=value??'';}adminState.settingsLoaded=true;}
   for(const key of [...Object.keys(state.settings.values),'bsm_db_url']){const input=field('setting-'+key);if(input)input.disabled=state.settings.environment_overrides.includes(key);}
  }
+ if(state.deployment)field('deployment-info').textContent=JSON.stringify(state.deployment,null,2);
  if(state.supervisor)field('supervisor-version').textContent='Version '+state.supervisor.version+' · revision '+(state.supervisor.revision||'unrecorded');
  const current=state.jobs.find(item=>item.id===adminState.job);
  if(current){adminMessage(current.action+' · '+current.state+(current.result?.console_restart_required?' · Restart the console to load this update.':''));if(!['running','interrupted'].includes(current.state)&&adminState.renderedJob!==current.id){adminState.renderedJob=current.id;const currentSession=session;request('jobs/'+current.id).then(report=>{if(currentSession!==session)return;field('admin-output').textContent=report.output;try{adminState.report=JSON.parse(report.output);}catch{adminState.report={output:report.output};}}).catch(error=>{if(currentSession===session)adminMessage(error.message,true);});}}

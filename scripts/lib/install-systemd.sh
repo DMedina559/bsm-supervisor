@@ -15,6 +15,7 @@ publish_launcher() {
 bsm_install_systemd() {
     local source_dir=$1 work=$2 ref=$3 package_version=$4 config=$5 install_unit=$6
     local version_dir package_dir service_unit link unit
+    bsm_stage 'Install and verify supervisor package'
     # Each bootstrap gets a permanent venv so existing CLI installations remain intact.
     install -d -m 0755 /opt/bsm-supervisor /opt/bsm-supervisor/versions
     version_dir=$(mktemp -d /opt/bsm-supervisor/versions/install-XXXXXXXX)
@@ -49,6 +50,7 @@ PYVERSION
     fi
     "$version_dir/bin/python" -I -m pip --isolated install --index-url https://pypi.org/simple "${package_dir}[all]"
     "$version_dir/bin/python" -I -m pip check
+    bsm_stage 'Account, storage and configuration'
     if ! id bsm >/dev/null 2>&1; then
         useradd --system --user-group --home-dir /srv/bsm --shell /usr/sbin/nologin bsm
     fi
@@ -116,6 +118,7 @@ if not match and not (source / '.git').exists() and (source / 'supervisor-source
     record = {key: supplied.get(key) for key in ('source', 'ref', 'revision', 'dirty')}
 (target / 'supervisor-installation.json').write_text(json.dumps(record, indent=2) + '\n')
 PYREVISION
+    bsm_stage 'Publish verified installation'
     # Publish only after package, configuration, and candidate unit validation succeed.
     link=/opt/bsm-supervisor/.current-$$
     ln -s "$version_dir" "$link"
@@ -139,5 +142,8 @@ PYREVISION
         echo 'When BSM is stopped, run: bsm-supervisor unit-refresh --offline-confirmed'
     fi
     echo 'See docs/install-lxc.md and docs/update-supervisor.md.'
+    bsm_stage 'Deployment report'
+    "$version_dir/bin/python" -I -m bsm_supervisor.deployment --config "$config" \
+        --record "${BSM_SUPERVISOR_INSTALL_METHOD:-linux}" --summary
 
 }

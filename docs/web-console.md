@@ -276,3 +276,23 @@ operation. Coupling requires the generated standard console service; a console
 started manually in a shell or under a custom unit does not satisfy that
 systemd dependency. Starting BSM with coupling enabled also starts its console
 dependency. It does not grant access to either web interface.
+
+## Inspecting interrupted work
+
+Operations include an **Inspect** control, and **Load older history** retrieves
+older pages beyond the latest 100 entries. Inspection shows the operation record,
+current service state and up to 500 related events. You can also enter an operation
+ID in Recovery and choose **Inspect operation**.
+
+After inspecting, **Acknowledge interruption** submits the inspected state digest.
+If the operation or service changed, inspect again. Live console workers, active
+CLI mutations, service transitions and protected recovery workflows still block
+acknowledgement. This clears interruption bookkeeping only; it never restores data
+or restarts BSM. Console-job acknowledgement is separate from its underlying
+operation. Inspect and resolve both when both are interrupted.
+
+On the Supervisor page, **Inspect pending update** shows the persisted update plan.
+**Cancel uninstalled update** archives only a matching `preparing` plan when the
+previous supervisor environment is still published. It performs no rollback or
+restart. Once publication has begun, use **Resume update**. The deployment details
+also show the installation mechanism, paths and supported systemd capabilities.

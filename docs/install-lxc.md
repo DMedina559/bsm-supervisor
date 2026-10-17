@@ -178,3 +178,23 @@ resolves a pinned source bundle before loading the shared systemd installation
 module. Published releases with the older standalone installer remain supported.
 The generic `install.sh` entry point requires its sibling scripts from the source
 bundle and is not a standalone download.
+
+## Preflight checks and installation logs
+
+Run the installer with `--check` for read-only Linux preflight checks. This mode
+checks the running systemd requirement, Python compatibility when installed,
+configuration path and non-overlapping storage roots, and minimum free space.
+It does not install packages, acquire sources, or change services. Network access
+and package installation are verified during the real installation.
+
+```bash
+bash scripts/install.sh --check
+```
+
+Real installations write mode-0600 logs under the private
+`/var/log/bsm-supervisor/` directory. Named stages and the final result identify
+where an installation failed. The completion summary reports the managed service
+state, configured BSM URLs and next commands without claiming application
+readiness. Deployment metadata records whether installation used Linux directly
+or the Proxmox host provisioner. The Supervisor page displays that metadata and
+supported systemd capabilities. Other service backends remain unimplemented.

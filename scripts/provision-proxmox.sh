@@ -1,7 +1,84 @@
 #!/usr/bin/env bash
 # Run on a Proxmox VE host; create a new unprivileged LXC and bootstrap supervisor.
-set -euo pipefail
+set -Eeuo pipefail
 umask 077
+# BEGIN SHARED BOOTSTRAP
+# Common bootstrap functions embedded into standalone entry points.
+bsm_stage() {
+    bsm_current_stage=$1
+    printf '\n[%s] %s\n' "$(date -u +%H:%M:%S)" "$bsm_current_stage"
+}
+bsm_log_begin() {
+    local kind=$1
+    local directory=${BSM_SUPERVISOR_LOG_DIR:-/var/log/bsm-supervisor}
+    mkdir -p -- "$directory"
+    chmod 0700 "$directory"
+    bsm_log=$(umask 077; mktemp "$directory/$kind-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX.log")
+    exec > >(tee -a "$bsm_log") 2>&1
+    bsm_started=$SECONDS
+    bsm_stage 'Preflight checks'
+    trap 'printf "Failed during %s (line %s). Inspect %s\n" "${bsm_current_stage:-startup}" "$LINENO" "$bsm_log" >&2' ERR
+}
+bsm_finish() {
+    local result=$1
+    if [[ -n ${bsm_log:-} ]]; then
+        printf '\nResult: %s | Stage: %s | Elapsed: %ss | Log: %s\n' "$result" "${bsm_current_stage:-startup}" "$((SECONDS - bsm_started))" "$bsm_log"
+    fi
+}
+bsm_linux_preflight() {
+    local config=$1 path available
+    for path in /opt /var/lib /srv; do
+        available=$(df -Pk "$path" | awk 'NR==2 {print $4}')
+        [[ $available =~ ^[0-9]+$ && $available -ge 524288 ]] || {
+            echo "At least 512 MiB free is required on $path." >&2; return 1;
+        }
+    done
+    [[ $config == /* && ! -L $config ]] || { echo 'Configuration must be an absolute, non-symlink path.' >&2; return 1; }
+    if command -v python3 >/dev/null; then
+        python3 - "$config" <<'PYPREFLIGHT'
+import pathlib, sys
+if sys.version_info < (3, 11):
+    raise SystemExit('Python 3.11+ is required; use Debian 12+ or Ubuntu 24.04+')
+import tomllib
+path = pathlib.Path(sys.argv[1])
+if path.exists():
+    values = tomllib.loads(path.read_text())
+    roots = [pathlib.Path(values[key]).resolve() for key in ('state_dir', 'installations_dir', 'data_dir')]
+    if any(left == right or left in right.parents or right in left.parents
+           for index, left in enumerate(roots) for right in roots[index + 1:]):
+        raise SystemExit('State, installation and data directories must not overlap')
+PYPREFLIGHT
+    fi
+}
+github_download() {
+    local url=$1 destination=$2 status work=${work:?Bootstrap work directory required}
+    if status=$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+        --retry 2 --retry-max-time 60 --connect-timeout 20 --max-time 300 --write-out '%{http_code}' --config "$work/auth" \
+        "$url" -o "$destination"); then return; fi
+    if [[ ! -s $work/auth && $status == 404 ]]; then
+        local visibility
+        visibility=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --connect-timeout 10 --max-time 20 --proto '=https' \
+            'https://api.github.com/repos/DMedina559/bsm-supervisor') || visibility=000
+        if [[ $visibility == 200 ]]; then
+            echo 'Public repository resource not found. Choose a published release tag or --ref dev.' >&2
+            return 1
+        fi
+    fi
+    if [[ ! -s $work/auth && -t 0 && ( $status == 401 || $status == 403 || $status == 404 ) ]]; then
+        read -r -s -p 'GitHub token for private repository access: ' token
+        echo
+        [[ $token =~ ^[A-Za-z0-9_]+$ ]] || { echo 'Invalid token format.' >&2; return 1; }
+        printf 'header = "Authorization: Bearer %s"\n' "$token" > "$work/auth"
+        unset token
+        curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            --retry 2 --retry-max-time 60 --connect-timeout 20 --max-time 300 --config "$work/auth" "$url" -o "$destination"
+    else
+        echo 'Download failed. Check the release/ref and network; private repositories require GH_TOKEN.' >&2
+        return 1
+    fi
+}
+# END SHARED BOOTSTRAP
 ctid=
 hostname=bsm-supervisor
 bsm_host=0.0.0.0
@@ -28,11 +105,19 @@ package_version_explicit=false
 dry_run=false
 creation_attempted=false
 interactive=false
+resume=false
+resume_id=
+profile=
+save_profile=
+state_root=${BSM_SUPERVISOR_PROVISION_DIR:-/var/lib/bsm-supervisor/provisioning}
 if (($# == 0)) && [[ -t 0 ]]; then interactive=true; fi
 work=
 usage() {
     cat <<'HELP'
 Usage: provision-proxmox.sh [OPTIONS]
+  --profile PATH             Load public JSON defaults; CLI values override them
+  --save-profile PATH        Save reusable defaults (no guest ID, static IP or secrets)
+  --resume ID                Resume an owned deployment using its pinned cached bundle
   --ctid ID                  Default: next free cluster ID
   --hostname NAME            Default: bsm-supervisor
   --storage NAME             Root disk storage (default: local-lvm)
@@ -52,19 +137,151 @@ Usage: provision-proxmox.sh [OPTIONS]
   --ref BRANCH_OR_SHA         Supervisor release/ref (default: latest stable)
   --source-dir CHECKOUT       Use local source instead of private GitHub download
   --interactive              Guided Default/Advanced setup wizard
+  --profile JSON_FILE         Load reusable, non-secret defaults; CLI values override
+  --save-profile JSON_FILE    Save validated reusable defaults (mode 0600)
+  --resume CTID               Resume only this recorded, unchanged deployment
   --dry-run                  Read-only preflight and command preview
   --help
-The container is always unprivileged. Existing guests are never reused/deleted.
+The container is always unprivileged. Resume requires the recorded ownership marker
+and unchanged configuration. Other existing guests are never reused/deleted.
 HELP
 }
 fail() { echo "$*" >&2; exit 1; }
+
+# Profiles contain data only; never source shell configuration files.
+load_defaults() {
+    python3 - "$1" "$2" <<'PYDEFAULTS'
+import json, os, pathlib, stat, sys
+path, mode = pathlib.Path(sys.argv[1]), sys.argv[2]
+if path.is_symlink() or not path.is_file() or path.stat().st_size > 262144:
+    raise SystemExit('Invalid provisioning defaults file')
+value = json.loads(path.read_text())
+keys = {'hostname','storage','template_storage','template','bridge','nameserver','vlan','cores','memory','swap','disk','onboot','ref','bsm_host'}
+if mode == 'resume':
+    if path.stat().st_uid != os.geteuid() or stat.S_IMODE(path.stat().st_mode) & 0o077:
+        raise SystemExit('Provisioning journal must be privately owned by this operator')
+    if not isinstance(value, dict) or value.get('schema') != 1:
+        raise SystemExit('Unsupported provisioning journal')
+    value = value['settings']
+    keys |= {'address','gateway'}
+if not isinstance(value, dict) or value.keys() - keys:
+    raise SystemExit('Unsupported provisioning defaults; guest IDs, static addresses and secrets do not belong in profiles')
+for key, item in value.items():
+    if type(item) not in (str, int) or len(str(item)) > 4096 or any(ord(c) < 32 for c in str(item)):
+        raise SystemExit('Invalid provisioning default value')
+    print(key); print(item)
+PYDEFAULTS
+}
+scan_args=("$@")
+for ((scan=0; scan<${#scan_args[@]}; scan++)); do
+    case ${scan_args[scan]} in
+        --profile|--resume)
+            ((scan + 1 < ${#scan_args[@]})) || fail 'Missing profile or resume value.'
+            if [[ ${scan_args[scan]} == --profile ]]; then profile=${scan_args[scan+1]}; else resume_id=${scan_args[scan+1]}; resume=true; fi
+            ((scan+=1)) ;;
+    esac
+ done
+[[ -z $profile || -z $resume_id ]] || fail 'Use either a profile or a recorded deployment, not both.'
+if [[ -n $profile || -n $resume_id ]]; then
+    if $resume; then
+        [[ $resume_id =~ ^[1-9][0-9]{2,8}$ ]] || fail 'Invalid resume container ID.'
+        ctid=$resume_id
+        defaults=$(load_defaults "$state_root/$ctid/plan.json" resume)
+        package_version=$(python3 -c 'import json,sys; value=json.load(open(sys.argv[1])).get("package_version", ""); assert isinstance(value,str) and all(ord(c)>=32 for c in value); print(value)' "$state_root/$ctid/plan.json")
+        package_version_explicit=true
+    else
+        defaults=$(load_defaults "$profile" profile)
+    fi
+    while IFS= read -r key && IFS= read -r value; do printf -v "$key" '%s' "$value"; done <<< "$defaults"
+fi
+settings_payload() {
+    local key
+    local -a entries=()
+    for key in hostname storage template_storage template bridge address gateway nameserver vlan cores memory swap disk onboot ref bsm_host; do
+        entries+=("$key=${!key}")
+    done
+    python3 - "${entries[@]}" <<'PYSETTINGS'
+import json, sys
+print(json.dumps(dict(value.split('=', 1) for value in sys.argv[1:]), sort_keys=True))
+PYSETTINGS
+}
+provision_record() {
+    local action=$1
+    python3 - "$action" "$state_root" "$ctid" "$work" "$ref" "$package_version" <<'PYJOURNAL'
+import datetime, hashlib, json, os, pathlib, shutil, socket, stat, sys, tempfile, uuid
+operation, base, ctid, temporary, ref, package_version = sys.argv[1:]
+base, work = pathlib.Path(base), pathlib.Path(temporary)
+base.mkdir(mode=0o700, parents=True, exist_ok=True)
+if base.is_symlink() or base.stat().st_uid != os.geteuid() or stat.S_IMODE(base.stat().st_mode) & 0o077:
+    raise SystemExit('Provisioning state directory must be private and owned by this operator')
+root = base / ctid
+path = root / 'plan.json'
+def sha(value): return hashlib.sha256(value).hexdigest()
+def payload(name): return sha(json.dumps(json.loads((work / name).read_text()), sort_keys=True).encode())
+def guest_fingerprint():
+    text = (work / 'guest-config').read_text()
+    marker = 'BSM Supervisor deployment ' + record['id']
+    if not any(line == 'description: ' + marker for line in text.splitlines()):
+        raise SystemExit('Container ownership marker does not match this deployment')
+    return sha('\n'.join(sorted(line for line in text.splitlines() if not line.startswith(('description:', 'lock:')))).encode())
+if operation == 'prepare':
+    root.mkdir(mode=0o700)
+    shutil.copyfile(work / 'bootstrap.tar.gz', root / 'bootstrap.tar.gz')
+    (root / 'bootstrap.tar.gz').chmod(0o600)
+    record = {'schema':1, 'id':uuid.uuid4().hex, 'ctid':ctid, 'node':socket.gethostname(),
+              'phase':'prepared', 'settings':json.loads((work / 'settings.json').read_text()),
+              'environment_sha256':payload('environment.json'),
+              'bootstrap_sha256':sha((root / 'bootstrap.tar.gz').read_bytes()),
+              'ref':ref, 'package_version':package_version, 'guest_fingerprint':None,
+              'created_at':datetime.datetime.now(datetime.timezone.utc).isoformat()}
+else:
+    if root.is_symlink() or root.stat().st_uid != os.geteuid() or stat.S_IMODE(root.stat().st_mode) & 0o077 or path.is_symlink() or path.stat().st_size > 262144 or path.stat().st_uid != os.geteuid() or stat.S_IMODE(path.stat().st_mode) & 0o077:
+        raise SystemExit('Invalid provisioning journal ownership or permissions')
+    record = json.loads(path.read_text())
+    if record.get('schema') != 1 or record.get('ctid') != ctid or record.get('node') != socket.gethostname():
+        raise SystemExit('Deployment journal does not belong to this guest and host')
+    if operation in ('verify', 'verify-empty'):
+        if record['settings'] != json.loads((work / 'settings.json').read_text()) or record['environment_sha256'] != payload('environment.json'):
+            raise SystemExit('Resume inputs differ; use the original settings and BSM environment file')
+        cache = root / 'bootstrap.tar.gz'
+        if cache.is_symlink() or cache.stat().st_uid != os.geteuid() or stat.S_IMODE(cache.stat().st_mode) & 0o077 or sha(cache.read_bytes()) != record['bootstrap_sha256']:
+            raise SystemExit('Cached source bundle changed; resume refused')
+        if record.get('package_version', '') != package_version or record.get('ref') != ref:
+            raise SystemExit('Resume source selection differs from the recorded deployment')
+        if operation == 'verify-empty':
+            if record['phase'] != 'prepared' or record['guest_fingerprint'] is not None:
+                raise SystemExit('A previously created container is missing; refusing to recreate it')
+            print(record['id']); raise SystemExit(0)
+        current = guest_fingerprint()
+        if record['guest_fingerprint'] and record['guest_fingerprint'] != current:
+            raise SystemExit('Container configuration changed; inspect it before recovery')
+        print(record['id']); raise SystemExit(0)
+    if operation == 'phase':
+        print(record['phase']); raise SystemExit(0)
+    if operation not in ('created', 'environment', 'installed', 'completed'):
+        raise SystemExit('Invalid provisioning phase')
+    record['phase'] = operation
+    record['guest_fingerprint'] = guest_fingerprint()
+record['updated_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+fd, name = tempfile.mkstemp(dir=root)
+with os.fdopen(fd, 'w') as stream:
+    json.dump(record, stream, indent=2); stream.flush(); os.fsync(stream.fileno())
+os.replace(name, path)
+directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+try: os.fsync(directory)
+finally: os.close(directory)
+print(record['id'])
+PYJOURNAL
+}
+
 while (($#)); do
     case "$1" in
+        --profile|--resume) shift 2 ;;
         --interactive) interactive=true; shift ;;
         --dry-run) dry_run=true; shift ;;
         --onboot) onboot=1; shift ;;
         --help|-h) usage; exit 0 ;;
-        --ctid|--bsm-env-file|--bsm-host|--hostname|--storage|--template-storage|--template|--bridge|--ip|--gateway|--nameserver|--vlan|--cores|--memory|--swap|--disk|--ref|--source-dir|--package-version)
+        --save-profile|--ctid|--bsm-env-file|--bsm-host|--hostname|--storage|--template-storage|--template|--bridge|--ip|--gateway|--nameserver|--vlan|--cores|--memory|--swap|--disk|--ref|--source-dir|--package-version)
             (($# >= 2)) || fail "Missing value for $1"
             [[ $1 != --package-version ]] || package_version_explicit=true
             [[ $1 != --bsm-host ]] || bsm_host_explicit=1
@@ -75,6 +292,7 @@ while (($#)); do
         *) usage >&2; fail "Unknown option: $1" ;;
     esac
 done
+if $resume; then [[ $ctid == "$resume_id" && -z $source_dir ]] || fail 'Resume requires its recorded ID and cached source; do not pass --source-dir.'; fi
 [[ $EUID == 0 ]] || $dry_run || fail 'Run as root on the Proxmox host.'
 for command in pct pvesh pvesm pveversion python3 ip tar flock perl; do
     command -v "$command" >/dev/null || fail "Missing Proxmox host prerequisite: $command"
@@ -119,6 +337,8 @@ choose_storage() {
         ask "$variable" "Storage for $content" "$fallback"
     fi
 }
+if $resume && $interactive; then fail 'Resume uses recorded settings; omit --interactive.'; fi
+if ! $dry_run; then bsm_log_begin provision; trap 'bsm_finish $?' EXIT; fi
 if $interactive; then
     [[ -t 0 ]] || fail '--interactive requires a terminal.'
     printf '\n  BSM Supervisor — Proxmox LXC Setup\n\n'
@@ -134,7 +354,11 @@ if $interactive; then
         case "$mode" in ''|1) mode=default ;; 2) mode=advanced ;; *) mode="exit" ;; esac
     fi
     [[ $mode != exit ]] || exit 0
-    if [[ -z $ctid ]]; then ctid=$(pvesh get /cluster/nextid); fi
+    if ! $resume; then
+    available_kib=$(pvesm status --storage "$storage" --content rootdir | awk 'NR>1 {print $6; exit}')
+    [[ $available_kib =~ ^[0-9]+$ && $available_kib -ge $((disk * 1048576)) ]] || fail 'Selected storage has insufficient free space for the requested disk.'
+fi
+if [[ -z $ctid ]]; then ctid=$(pvesh get /cluster/nextid); fi
     if [[ $mode == advanced ]]; then
         ask ctid 'Container ID' "$ctid"
         ask hostname 'Container hostname' "$hostname"
@@ -219,8 +443,9 @@ if address == 'dhcp':
 else:
     if '/' not in address or not gateway:
         raise SystemExit('Static IPv4 needs a CIDR prefix and --gateway')
-    ipaddress.IPv4Interface(address)
-    ipaddress.IPv4Address(gateway)
+    interface = ipaddress.IPv4Interface(address)
+    if ipaddress.IPv4Address(gateway) not in interface.network:
+        raise SystemExit('Gateway is outside the configured subnet')
 if dns:
     ipaddress.ip_address(dns)
 for value, minimum, maximum in zip(numbers[:4], (1, 512, 0, 4), (8192, 1048576, 1048576, 1048576)):
@@ -231,15 +456,24 @@ if numbers[4] and (not numbers[4].isascii() or not numbers[4].isdecimal() or not
 PY
 ip link show dev "$bridge" >/dev/null || fail 'Bridge does not exist on this node.'
 pvesm status --storage "$storage" --content rootdir | awk 'NR > 1 && $3 == "active" {found=1} END {exit !found}' || fail 'Root disk storage is not active or does not support containers.'
+if ! $resume; then
+    available_kib=$(pvesm status --storage "$storage" --content rootdir | awk 'NR>1 {print $6; exit}')
+    [[ $available_kib =~ ^[0-9]+$ && $available_kib -ge $((disk * 1048576)) ]] || fail 'Selected storage has insufficient free space for the requested disk.'
+fi
 if [[ -z $ctid ]]; then ctid=$(pvesh get /cluster/nextid); fi
 [[ $ctid =~ ^[1-9][0-9]{2,8}$ ]] || fail 'Container ID must be 100..999999999.'
 # Cluster-wide check includes QEMU guests and containers on other nodes.
 pvesh get /cluster/resources --type vm --output-format json | python3 -c '
 import json, sys
 wanted=int(sys.argv[1])
-if any(int(item["vmid"]) == wanted for item in json.load(sys.stdin)):
+resume=sys.argv[2] == "true"
+guests = json.load(sys.stdin)
+if resume and any(int(item["vmid"]) == wanted and item.get("type") != "lxc" for item in guests):
+    raise SystemExit("Resume ID belongs to a different guest type")
+if not resume and any(int(item["vmid"]) == wanted for item in guests):
     raise SystemExit("Container ID already belongs to an existing guest")
-' "$ctid"
+' "$ctid" "$resume"
+if ! $resume; then
 if [[ -n $template ]]; then
     [[ $template =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*:vztmpl/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || fail 'Use a Proxmox storage:vztmpl/template volume.'
     template_path=$(pvesm path "$template")
@@ -253,6 +487,7 @@ else
     [[ -n $template_name ]] || fail 'No supported Debian template found; run pveam update or pass --template.'
     template="$template_storage:vztmpl/$template_name"
     pvesm status --storage "$template_storage" --content vztmpl | awk 'NR > 1 && $3 == "active" {found=1} END {exit !found}' || fail 'Template storage must be active with vztmpl support.'
+fi
 fi
 network="name=eth0,type=veth,bridge=$bridge,ip=$address,ip6=manual,firewall=1"
 [[ -z $gateway ]] || network+=",gw=$gateway"
@@ -277,6 +512,19 @@ BSM will remain stopped."
         [[ $answer == y || $answer == Y ]] || exit 0
     fi
 fi
+if [[ -n $save_profile ]] && ! $dry_run; then
+    settings_payload | python3 -c '
+import json, os, pathlib, sys, tempfile
+path=pathlib.Path(sys.argv[1])
+if path.is_symlink(): raise SystemExit("Profile must not be a symlink")
+values=json.load(sys.stdin)
+for key in ("address", "gateway"): values.pop(key, None)
+path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+fd, name=tempfile.mkstemp(dir=path.parent)
+with os.fdopen(fd, "w") as stream: json.dump(values, stream, indent=2)
+os.replace(name, path)
+' "$save_profile"
+fi
 if $dry_run; then
     echo 'Dry run: no download, creation, or installation performed.'
     exit 0
@@ -286,8 +534,10 @@ flock --nonblock 9 || fail 'Another supervisor provisioner is running.'
 if [[ $ref != "$initial_ref" ]] && ! $package_version_explicit; then package_version=; fi
 work=$(mktemp -d)
 prepare_environment > "$work/environment.json"
+settings_payload > "$work/settings.json"
 cleanup() {
     result=$?
+    bsm_finish "$result"
     [[ -z $work ]] || rm -rf -- "$work"
     if ((result != 0)) && $creation_attempted; then
         printf 'Provisioning failed for LXC %s. Any created container is retained; inspect with: pct enter %s\n' "$ctid" "$ctid" >&2
@@ -295,6 +545,19 @@ cleanup() {
     fi
 }
 trap cleanup EXIT
+if $resume; then
+    bsm_stage 'Verify recorded deployment'
+    phase=$(provision_record phase)
+    guest_exists=true
+    if pct config "$ctid" > "$work/guest-config"; then
+        deployment_id=$(provision_record verify)
+    else
+        guest_exists=false
+        deployment_id=$(provision_record verify-empty)
+    fi
+    cp -- "$state_root/$ctid/bootstrap.tar.gz" "$work/bootstrap.tar.gz"
+else
+    bsm_stage 'Acquire pinned deployment bundle'
 if [[ -z $source_dir ]]; then
     command -v curl >/dev/null || fail 'Install curl on the host, or pass --source-dir.'
     token=${GH_TOKEN:-}
@@ -304,34 +567,7 @@ if [[ -z $source_dir ]]; then
         printf 'header = "Authorization: Bearer %s"\n' "$token" > "$work/auth"
     fi
     unset token GH_TOKEN
-    github_download() {
-        local url=$1 destination=$2 status
-        if status=$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-            --connect-timeout 20 --max-time 300 --write-out '%{http_code}' --config "$work/auth" \
-            "$url" -o "$destination"); then return; fi
-        if [[ ! -s $work/auth && $status == 404 ]]; then
-            local visibility
-            visibility=$(curl --silent --output /dev/null --write-out '%{http_code}' \
-                --connect-timeout 10 --max-time 20 --proto '=https' \
-                'https://api.github.com/repos/DMedina559/bsm-supervisor') || visibility=000
-            if [[ $visibility == 200 ]]; then
-                echo 'Public repository resource not found. Choose a published release tag or --ref dev.' >&2
-                return 1
-            fi
-        fi
-        if [[ ! -s $work/auth && -t 0 && ( $status == 401 || $status == 403 || $status == 404 ) ]]; then
-            read -r -s -p 'GitHub token for private repository access: ' token
-            echo
-            [[ $token =~ ^[A-Za-z0-9_]+$ ]] || { echo 'Invalid token format.' >&2; return 1; }
-            printf 'header = "Authorization: Bearer %s"\n' "$token" > "$work/auth"
-            unset token
-            curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-                --connect-timeout 20 --max-time 300 --config "$work/auth" "$url" -o "$destination"
-        else
-            echo 'Download failed. Check the release/ref and network; private repositories require GH_TOKEN.' >&2
-            return 1
-        fi
-    }
+
     if [[ $ref == latest ]]; then
         github_download 'https://api.github.com/repos/DMedina559/bsm-supervisor/releases/latest' "$work/release.json"
         ref=$(python3 - "$work/release.json" <<'PYTAG'
@@ -419,11 +655,28 @@ fi
 tar --create --gzip --file "$work/bootstrap.tar.gz" --directory "$source_dir" \
     pyproject.toml README.md LICENSE config.example.toml src scripts \
     --directory "$work" supervisor-source.json "${version_inputs[@]}"
-echo "[1/4] Preparing LXC template"
-if [[ -n ${template_name:-} ]]; then pveam download "$template_storage" "$template_name"; fi
-echo "[2/4] Creating unprivileged LXC $ctid"
+    settings_payload > "$work/settings.json"
+    deployment_id=$(provision_record prepare)
+    phase=prepared
+fi
+if $resume && [[ $phase == completed ]]; then
+    echo "Deployment for LXC $ctid is already complete; nothing changed."
+    exit 0
+fi
+bsm_stage 'Preparing LXC template'
+if ! $resume && [[ -n ${template_name:-} ]]; then pveam download "$template_storage" "$template_name"; fi
+bsm_stage 'Creating or verifying owned LXC'
 creation_attempted=true
-"${create[@]}"
+if ! $resume || ! $guest_exists; then
+    [[ -f $(pvesm path "$template") ]] || fail 'The recorded template is unavailable. Restore it before resuming creation.'
+    create+=(--description "BSM Supervisor deployment $deployment_id")
+    available_kib=$(pvesm status --storage "$storage" --content rootdir | awk 'NR>1 {print $6; exit}')
+    [[ $available_kib =~ ^[0-9]+$ && $available_kib -ge $((disk * 1048576)) ]] || fail 'Selected storage has insufficient free space for the requested disk.'
+    "${create[@]}"
+    pct config "$ctid" > "$work/guest-config"
+    provision_record created >/dev/null
+fi
+if [[ $phase == prepared || $phase == created ]]; then
 # Invoke Proxmox's native CLI handler in-process: POSIX argv cannot carry NULs.
 perl -MJSON::PP -MPVE::CLI::pct -e '
     my ($id, $path) = @ARGV;
@@ -432,26 +685,46 @@ perl -MJSON::PP -MPVE::CLI::pct -e '
     @ARGV = ("set", $id, "--env", join("\0", map { "$_=$values->{$_}" } sort keys %$values));
     PVE::CLI::pct->run_cli_handler();
 ' "$ctid" "$work/environment.json"
-echo "[3/4] Starting container and waiting for network"
-pct start "$ctid"
+pct config "$ctid" > "$work/guest-config"
+provision_record environment >/dev/null
+fi
+bsm_stage 'Starting container and waiting for network'
+[[ $(pct status "$ctid") == *running* ]] || pct start "$ctid"
 ready=false
 for ((attempt=0; attempt<60; attempt++)); do
     if pct exec "$ctid" -- test -d /run/systemd/system && \
         pct exec "$ctid" -- getent hosts pypi.org >/dev/null; then ready=true; break; fi
     sleep 2
 done
-$ready || fail 'Container did not become ready with DNS within 120 seconds.'
+if ! $ready; then
+    pct exec "$ctid" -- ip -brief address || true
+    pct exec "$ctid" -- ip -4 route || true
+    pct exec "$ctid" -- cat /etc/resolv.conf || true
+    fail 'Container readiness failed. Inspect systemd, IP, routing and DNS output above; resume with --resume after correcting it.'
+fi
+bsm_stage 'Install supervisor in owned container'
+if [[ $phase != installed ]]; then
 pct exec "$ctid" -- mkdir -p /root/bsm-supervisor-bootstrap
 pct push "$ctid" "$work/bootstrap.tar.gz" /root/bsm-supervisor-bootstrap/source.tar.gz --perms 0600
 pct exec "$ctid" -- tar --extract --gzip --file /root/bsm-supervisor-bootstrap/source.tar.gz \
     --directory /root/bsm-supervisor-bootstrap --no-same-owner --no-same-permissions
 echo "[4/4] Installing supervisor and managed BSM unit"
 guest_installer=install-lxc.sh
-[[ ! -f $source_dir/scripts/install.sh ]] || guest_installer=install.sh
-pct exec "$ctid" -- bash "/root/bsm-supervisor-bootstrap/scripts/$guest_installer" \
-    --source-dir /root/bsm-supervisor-bootstrap --ref "$ref" --package-version "$package_version" --install-bsm-unit
+if tar -tzf "$work/bootstrap.tar.gz" | grep -qx 'scripts/install.sh'; then guest_installer=install.sh; fi
+flags=(--install-bsm-unit)
+if $resume && [[ $(pct exec "$ctid" -- systemctl show bedrock-server-manager-webui.service --property=Description --value) == 'Bedrock Server Manager (BSM Supervisor)' ]]; then flags=(); fi
+pct exec "$ctid" -- env BSM_SUPERVISOR_INSTALL_METHOD=proxmox-lxc bash "/root/bsm-supervisor-bootstrap/scripts/$guest_installer" \
+    --source-dir /root/bsm-supervisor-bootstrap --ref "$ref" --package-version "$package_version" "${flags[@]}"
+pct config "$ctid" > "$work/guest-config"
+provision_record installed >/dev/null
+fi
 pct exec "$ctid" -- rm -rf /root/bsm-supervisor-bootstrap
+pct config "$ctid" > "$work/guest-config"
+provision_record completed >/dev/null
+bsm_stage 'Deployment complete'
 printf '\nLXC %s is ready. Enter it with: pct enter %s\n' "$ctid" "$ctid"
-echo 'Supervisor is installed; BSM has not been installed or started.'
+pct exec "$ctid" -- hostname -I || true
+printf 'Deployment journal: %s/%s/plan.json\n' "$state_root" "$ctid"
+echo 'Supervisor is installed. Inspect current service state inside the container.'
 echo 'Inside the container, run: bsm-supervisor setup --offline-confirmed'
 echo 'See docs/install-lxc.md for version selection and BSM user setup.'
