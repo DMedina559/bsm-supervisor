@@ -2,10 +2,10 @@
 
 import contextlib
 import io
-import subprocess
-import tempfile
-import sys
 import sqlite3
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -112,7 +112,9 @@ class SupervisorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "absolute"):
             Config(Path("relative"), self.root / "i", self.root / "d")
         with self.assertRaisesRegex(ValueError, "integer"):
-            Config(self.root / "s", self.root / "i", self.root / "d", service_timeout=True)
+            Config(
+                self.root / "s", self.root / "i", self.root / "d", service_timeout=True
+            )
 
     def test_config_unknown_and_missing_fields(self):
         config = self.root / "config.toml"
@@ -133,10 +135,15 @@ class SupervisorTests(unittest.TestCase):
         service.control("stop")
         self.assertEqual(
             run.call_args.args[0],
-            ["/usr/bin/systemctl", "--no-pager", "--no-ask-password",
-             "stop", "bedrock-server-manager.service"],
+            [
+                "/usr/bin/systemctl",
+                "--no-pager",
+                "--no-ask-password",
+                "stop",
+                "bedrock-server-manager-webui.service",
+            ],
         )
-        self.assertEqual(run.call_args.kwargs["timeout"], 120)
+        self.assertEqual(run.call_args.kwargs["timeout"], 240)
         with self.assertRaises(ValueError):
             service.control("enable")
 
@@ -175,7 +182,9 @@ class SupervisorTests(unittest.TestCase):
         )
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(["--config", str(config), "start"]), 1)
-        self.assertEqual(Store(self.config.state_dir).operations()[0]["state"], "running")
+        self.assertEqual(
+            Store(self.config.state_dir).operations()[0]["state"], "running"
+        )
 
 
 if __name__ == "__main__":

@@ -61,16 +61,20 @@ class Store:
     def installations(self) -> list[dict]:
         """Return registered installations in a stable order."""
         with self.connect() as db:
-            return [dict(row) for row in db.execute(
-                "SELECT * FROM installations ORDER BY id"
-            )]
+            return [
+                dict(row)
+                for row in db.execute("SELECT * FROM installations ORDER BY id")
+            ]
 
     def operations(self) -> list[dict]:
         """Return the latest operations, including unresolved interruptions."""
         with self.connect() as db:
-            return [dict(row) for row in db.execute(
-                "SELECT * FROM operations ORDER BY id DESC LIMIT 100"
-            )]
+            return [
+                dict(row)
+                for row in db.execute(
+                    "SELECT * FROM operations ORDER BY id DESC LIMIT 100"
+                )
+            ]
 
     def begin(self, action: str) -> int:
         """Claim the single mutation slot across processes."""
@@ -85,7 +89,8 @@ class Store:
                     "A running or interrupted operation blocks mutations; "
                     "inspect history before acknowledging an interruption"
                 ) from exc
-            return int(cursor.lastrowid)
+            assert cursor.lastrowid is not None
+            return cursor.lastrowid
 
     def finish(self, operation_id: int, state: str, detail: str = "") -> None:
         """Record a completed mutation."""
@@ -104,7 +109,9 @@ class Store:
     @contextmanager
     def lock(self) -> Iterator[None]:
         """Exclude concurrent commands, including interruption acknowledgement."""
-        with (self.path.parent / "operation.lock").open("a", encoding="utf-8") as stream:
+        with (self.path.parent / "operation.lock").open(
+            "a", encoding="utf-8"
+        ) as stream:
             try:
                 fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as exc:
@@ -124,7 +131,9 @@ class Store:
             try:
                 yield operation_id
             except Exception as exc:
-                if not preserve_on_error:
+                if preserve_on_error:
+                    self.note(operation_id, str(exc))
+                else:
                     self.finish(operation_id, "failed", str(exc))
                 raise
             else:
@@ -146,7 +155,9 @@ class Store:
             if result.rowcount != 1:
                 raise ValueError("Operation is not running")
 
-    def register(self, installation_id: str, version: str, path: Path, root: Path) -> None:
+    def register(
+        self, installation_id: str, version: str, path: Path, root: Path
+    ) -> None:
         """Inventory an existing environment without activating or executing it."""
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", installation_id):
             raise ValueError("Invalid installation ID")
@@ -159,8 +170,20 @@ class Store:
             if not (resolved / name).is_file():
                 raise ValueError(f"Missing environment file: {name}")
         with self.mutation("register:" + installation_id):
-            with self.connect() as db:
-                db.execute(
-                    "INSERT INTO installations(id, version, path) VALUES (?, ?, ?)",
-                    (installation_id, version, str(resolved)),
-                )
+            self.add_installation(installation_id, version, resolved)
+
+    def add_installation(self, installation_id: str, version: str, path: Path) -> None:
+        """Record a validated installation inside an already locked mutation."""
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO installations(id, version, path) VALUES (?, ?, ?)",
+                (installation_id, version, str(path)),
+            )
+
+    def note(self, operation_id: int, detail: str) -> None:
+        """Persist progress or an uncertain outcome without releasing the slot."""
+        with self.connect() as db:
+            db.execute(
+                "UPDATE operations SET detail = ? WHERE id = ? AND state = 'running'",
+                (detail, operation_id),
+            )

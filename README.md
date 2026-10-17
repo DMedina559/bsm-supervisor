@@ -2,11 +2,11 @@
 
 Installation, version management, updates, and recovery for [Bedrock Server Manager](https://github.com/DMedina559/bedrock-server-manager).
 
-**Status: early development.** The local CLI, validated configuration, durable installation registry, operation journal, and systemd adapter are implemented. Downloading releases, creating environments, activation, checkpoints, recovery automation, and the web interface are not implemented yet.
+**Status: early development.** The CLI supports PyPI release discovery, isolated environment installation, offline activation, service controls, and durable operation history. Checkpoints, application readiness, automated upgrades/recovery, and the web interface are not implemented yet.
 
 ## Run the foundation
 
-Requires Linux and Python 3.11 or newer. systemd commands require an existing BSM service and permission to control that specific unit. The supervisor does not install units, create service accounts, or grant privileges yet.
+Requires Linux and Python 3.11 or newer with venv/ensurepip support. systemd commands require an existing BSM service and permission to control that specific unit. The supervisor can render a service unit but does not install it, create service accounts, or grant privileges yet. The default unit is bedrock-server-manager-webui.service, matching BSM.
 
 ```sh
 python3 -m venv .venv
@@ -41,15 +41,57 @@ Mutations use a process lock and persistent journal. A failed service command co
 
 Replace 1 with the operation ID from history. Acknowledgement only clears the block; it does not restore data, cancel a systemd job, or retry an operation. Automatic reconciliation is planned.
 
+## Select and install a release
+
+```sh
+bsm-supervisor --config config.toml releases
+bsm-supervisor --config config.toml releases --channel stable
+bsm-supervisor --config config.toml install stable
+# Or choose a published version explicitly:
+bsm-supervisor --config config.toml install 4.0.0b7
+```
+
+The stable channel selects the latest final release; prerelease selects the latest prerelease. Discovery excludes yanked files and wheels incompatible with the supervisor's current Python/platform. Installation uses the supervisor's Python interpreter and the official PyPI index with wheel-only dependencies. A source-only dependency causes a clear installation failure rather than running a build script.
+
+Installation creates a permanent release-VERSION directory, runs pip check, verifies the installed BSM version without importing BSM, and records provenance. It does not change the current selection or initialize BSM data. Command logs are saved under state_dir/logs. Each command has a 15-minute limit and its process group is terminated on timeout.
+
+Failed installation directories are retained for inspection and never registered or overwritten. Before retrying the same release, inspect history and logs and remove only its unregistered failed directory while no supervisor mutation is running. After a killed supervisor process, also check for surviving installer processes before acknowledging the interruption. Automated cleanup/resumption is planned.
+
+## Configure and activate a stopped installation
+
+```sh
+bsm-supervisor --config config.toml unit --user bsm > bedrock-server-manager-webui.service
+```
+
+Review the generated file before installing it in /etc/systemd/system and running systemctl daemon-reload. Create the bsm service account and give it ownership of data_dir, including its config subdirectory. Give that account read/execute access to the runtime environments and their base Python interpreter. Keep supervisor state and runtime environments writable only by the trusted supervisor operator. The generated unit uses explicit config/data directories; it does not migrate an existing installation's paths or database.
+
+With the service inactive, no pending systemd job, and no BSM process running outside that unit:
+
+```sh
+bsm-supervisor --config config.toml activate release-4.0.0b7 --offline-confirmed
+bsm-supervisor --config config.toml selection
+bsm-supervisor --config config.toml start
+```
+
+Activation verifies that the service uses the supervisor's current/bin/python command, then atomically updates the current symlink. It does not start BSM or restore data. A rejected/uncertain activation remains in history and blocks mutations until inspected and acknowledged.
+
+Before selecting a different version against existing data, establish schema compatibility and make a consistent backup covering configuration, databases, and external server directories. Version selection is not a data rollback. Automatic compatibility validation and checkpoint restoration are planned.
+
+Only supervisor commands share the operation lock. Do not concurrently start/restart the service through systemctl or BSM while activating a version. Offline confirmation is an explicit operator assertion covering processes outside systemd.
+
 ## Development checks
 
 ```sh
-python -m pip install .
+python -m pip install '.[dev]'
+python -m black --check src tests
+python -m isort --check-only src tests
+python -m flake8 src tests
+python -m mypy src
 python -m unittest discover -s tests -v
 bsm-supervisor --help
 ```
 
-CI tests Python 3.11 and 3.14. Service tests use a mocked command boundary; deployment in an actual LXC remains to be validated.
+Install the local pre-commit hooks with pre-commit install after installing the dev extra. CI tests Python 3.11 and 3.14 and runs the formatting, lint, and type checks. Service tests use a mocked command boundary; deployment in an actual LXC remains to be validated.
 
 ## Scope
 

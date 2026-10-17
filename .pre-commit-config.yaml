@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: python -m black --check src tests
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: isort
+        name: isort
+        entry: python -m isort --check-only src tests
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: flake8
+        name: flake8
+        entry: python -m flake8 src tests
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: mypy
+        name: mypy
+        entry: python -m mypy src
+        language: system
+        pass_filenames: false
+        types: [python]

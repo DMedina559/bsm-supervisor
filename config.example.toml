@@ -1,5 +1,5 @@
 state_dir = "/var/lib/bsm-supervisor"
 installations_dir = "/opt/bsm/installations"
 data_dir = "/srv/bsm"
-service_unit = "bedrock-server-manager.service"
-service_timeout = 120
+service_unit = "bedrock-server-manager-webui.service"
+service_timeout = 240

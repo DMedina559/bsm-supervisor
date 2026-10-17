@@ -20,11 +20,15 @@ class SystemdService:
         try:
             result = subprocess.run(
                 ["/usr/bin/systemctl", "--no-pager", "--no-ask-password", *arguments],
-                capture_output=True, text=True, timeout=self.timeout, check=False,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ServiceError(
-                "systemctl unavailable or timed out; inspect service state before retrying"
+                "systemctl unavailable or timed out; "
+                "inspect service state before retrying"
             ) from exc
         if result.returncode:
             raise ServiceError(result.stderr.strip() or "systemctl failed")
@@ -32,10 +36,14 @@ class SystemdService:
 
     def status(self) -> dict[str, str]:
         """Read explicit systemd properties, including inactive services."""
-        output = self._run([
-            "show", self.unit,
-            "--property=LoadState,ActiveState,SubState,MainPID,Result",
-        ])
+        output = self._run(
+            [
+                "show",
+                self.unit,
+                "--property=LoadState,ActiveState,SubState,"
+                "MainPID,Result,ExecStart,Job",
+            ]
+        )
         values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
         if values.get("LoadState") == "not-found":
             raise ServiceError(f"Service is not installed: {self.unit}")
