@@ -15,8 +15,7 @@ The controller normally runs as root inside the LXC. It creates protected, crede
 BSM versions that publish a `readiness_token` in their private runtime record
 support automatic local readiness authentication. No user account or bearer-token
 setup is required for these versions. The supervisor verifies the record's
-permissions, owner and process identity, then calls the loopback-only readiness
-endpoint with its separate read-only credential. It never uses that credential
+permissions, owner and process identity, then calls the health endpoint from loopback with its separate read-only credential. It never uses that credential
 for shutdown or general application access.
 
 Older BSM versions require a private file containing a user bearer token:

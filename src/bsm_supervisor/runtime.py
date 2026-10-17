@@ -168,18 +168,13 @@ def ready(config: Config, expected_version: str) -> dict:
         raise RuntimeErrorBase("BSM service is not active")
     record = control_record(config, status)
     if "readiness_token" in record:
-        payload = request(record, "/api/runtime/readiness", readiness=True)
-        identity = payload.get("runtime")
+        health = request(record, "/api/health", readiness=True)
         if (
-            not isinstance(identity, dict)
-            or identity.get("instance_id") != record["instance_id"]
-            or identity.get("pid") != record["pid"]
-            or identity.get("phase") != "ready"
-            or identity.get("shutdown_requested") is not False
+            health.get("instance_id") != record["instance_id"]
+            or health.get("pid") != record["pid"]
         ):
-            raise RuntimeErrorBase("Readiness belongs to a different or stopped runtime")
-        health = payload.get("health")
-        observed_version = payload.get("version")
+            raise RuntimeErrorBase("Readiness belongs to a different runtime")
+        observed_version = health.get("version")
     else:
         health = request(record, "/api/health", token=bearer(config))
         observed_version = None

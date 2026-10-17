@@ -89,20 +89,16 @@ class RuntimeTests(unittest.TestCase):
         service.return_value.status.return_value = {"ActiveState": "active"}
         record.return_value = {**self.record, "readiness_token": "local-readiness"}
         request.return_value = {
-            "runtime": {
-                "instance_id": self.record["instance_id"],
-                "pid": self.record["pid"],
-                "phase": "ready",
-                "shutdown_requested": False,
-            },
+            **self.healthy(),
+            "instance_id": self.record["instance_id"],
+            "pid": self.record["pid"],
             "version": "4.0.0b7",
-            "health": self.healthy(),
         }
         self.assertTrue(runtime.ready(config, "4.0.0b7")["ready"])
         request.assert_called_once_with(
-            record.return_value, "/api/runtime/readiness", readiness=True
+            record.return_value, "/api/health", readiness=True
         )
-        request.return_value["runtime"]["instance_id"] = "different"
+        request.return_value["instance_id"] = "different"
         with self.assertRaisesRegex(runtime.RuntimeErrorBase, "different"):
             runtime.ready(config, "4.0.0b7")
 
