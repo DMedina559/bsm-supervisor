@@ -3,7 +3,8 @@
 Run inside a Debian 12+ or Ubuntu 24.04+ systemd container as root. Python 3.11+
 is required. The installer installs distribution packages, creates a permanent
 supervisor virtual environment, and provides `/usr/local/bin/bsm-supervisor`.
-It does not provision the Proxmox container itself.
+To create the container from the Proxmox host instead, use the
+[guided host provisioner](proxmox-host.md).
 
 ## Private repository download
 

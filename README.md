@@ -2,11 +2,15 @@
 
 Installation, version management, updates, and recovery for [Bedrock Server Manager](https://github.com/DMedina559/bedrock-server-manager).
 
-**Status: early development.** The CLI supports release discovery, isolated installation, authenticated readiness and graceful shutdown, checkpoint-protected upgrades/recovery, offline activation, verified SQLite/filesystem checkpoints, retention, and durable workflow history. Deployment automation, Git sources, scheduling, and the independent web interface remain in scope for later milestones.
+**Status: early development.** The CLI supports release discovery, isolated installation, authenticated readiness and graceful shutdown, checkpoint-protected upgrades/recovery, offline activation, verified SQLite/filesystem checkpoints, retention, and durable workflow history. Git sources, protected installation cleanup, an LXC installer, and a guided Proxmox host provisioner are also available. Scheduling and the independent web interface remain planned.
+
+For the community-script style Default/Advanced setup wizard, start with
+[Proxmox host setup](docs/proxmox-host.md). For an existing container, use the
+[LXC installer](docs/install-lxc.md).
 
 ## Run the foundation
 
-Requires Linux and Python 3.11 or newer with venv/ensurepip support. systemd commands require an existing BSM service and permission to control that specific unit. The supervisor can render a service unit but does not install it, create service accounts, or grant privileges yet. The default unit is bedrock-server-manager-webui.service, matching BSM.
+Requires Linux and Python 3.11 or newer with venv/ensurepip support. systemd commands require an existing BSM service and permission to control that specific unit. The CLI renders service units; the LXC bootstrap script can create the service account and install a new managed unit. The default unit is bedrock-server-manager-webui.service, matching BSM.
 
 ```sh
 python3 -m venv .venv
@@ -131,7 +135,7 @@ BSM Supervisor will manage one BSM installation inside a Linux system, initially
 | systemd | Service startup, process tracking, and bounded crash recovery |
 | BSM | Minecraft server lifecycle, worlds, plugins, and server operations |
 
-Normal operation will not require Proxmox credentials. Container provisioning is a separate, later feature.
+Normal operation will not require Proxmox credentials. Container provisioning is provided by a separate root-only host script; normal supervisor operations stay inside the LXC.
 
 ## Planned capabilities
 
@@ -214,3 +218,6 @@ available through `install-git` and `installation-remove`. See
 For console bootstrap and private-repository download instructions, see
 [LXC installer](docs/install-lxc.md). Coordinated upgrades also accept registered
 Git installations through `upgrade --installation ID`.
+
+To create the container from the Proxmox host with a guided Default/Advanced
+wizard, use [Proxmox host setup](docs/proxmox-host.md).
