@@ -69,3 +69,40 @@ class BootstrapArchiveTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Unsafe source archive", result.stderr)
                 self.assertFalse((self.work / "source").exists())
+
+
+class BootstrapLauncherTests(unittest.TestCase):
+    def test_launcher_supports_repeat_install_and_preserves_unrelated_commands(self):
+        installer = Path(__file__).resolve().parents[1] / "scripts/install-lxc.sh"
+        function = (
+            installer.read_text()
+            .split("publish_launcher() {\n", 1)[1]
+            .split("\n}\n", 1)[0]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "bsm-supervisor"
+            program = (
+                "set -e; publish_launcher() {\n"
+                + function
+                + '\n}; publish_launcher "$1"'
+            )
+            for _ in range(2):
+                result = subprocess.run(
+                    ["bash", "-c", program, "test", str(destination)],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    str(destination.readlink()),
+                    "/opt/bsm-supervisor/current/bin/bsm-supervisor",
+                )
+            destination.unlink()
+            destination.write_text("existing command")
+            result = subprocess.run(
+                ["bash", "-c", program, "test", str(destination)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(destination.read_text(), "existing command")

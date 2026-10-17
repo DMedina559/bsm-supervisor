@@ -9,6 +9,17 @@ usage() {
     echo 'Usage: install-lxc.sh [--ref BRANCH_OR_COMMIT] [--source-dir CHECKOUT] [--install-bsm-unit]'
     echo 'Private repository downloads use GH_TOKEN (or an interactive hidden prompt).'
 }
+# Publish only our own launchers; never replace an unrelated system command.
+publish_launcher() {
+    local destination=$1 target=/opt/bsm-supervisor/current/bin/bsm-supervisor
+    if [[ -e $destination || -L $destination ]]; then
+        if [[ ! -L $destination ]] || [[ $(readlink -- "$destination") != "$target" ]]; then
+            echo "Refusing to replace unrelated launcher: $destination" >&2
+            return 1
+        fi
+    fi
+    ln -sfn -- "$target" "$destination"
+}
 while (($#)); do
     case "$1" in
         --ref|--source-dir)
@@ -123,7 +134,11 @@ fi
 link=/opt/bsm-supervisor/.current-$$
 ln -s "$version_dir" "$link"
 mv -Tf "$link" /opt/bsm-supervisor/current
-ln -sfn /opt/bsm-supervisor/current/bin/bsm-supervisor /usr/local/bin/bsm-supervisor
+publish_launcher /usr/local/bin/bsm-supervisor
+# pct enter can inherit a minimal PATH and does not necessarily load login profiles.
+publish_launcher /usr/bin/bsm-supervisor
+PATH=/usr/bin:/bin command -v bsm-supervisor >/dev/null
+/usr/bin/bsm-supervisor --help >/dev/null
 if $install_unit; then
     install -m 0644 "$work/bsm.service" "$unit"
     systemctl daemon-reload

@@ -2,7 +2,10 @@
 
 Run inside a Debian 12+ or Ubuntu 24.04+ systemd container as root. Python 3.11+
 is required. The installer installs distribution packages, creates a permanent
-supervisor virtual environment, and provides `/usr/local/bin/bsm-supervisor`.
+supervisor virtual environment, and provides launchers in `/usr/local/bin` and
+`/usr/bin`. The latter supports `pct enter` shells whose PATH omits local binaries.
+The installer verifies the command with a minimal `/usr/bin:/bin` PATH and refuses
+to replace unrelated commands at either launcher path.
 To create the container from the Proxmox host instead, use the
 [guided host provisioner](proxmox-host.md).
 
