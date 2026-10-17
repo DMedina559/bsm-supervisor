@@ -1,0 +1,47 @@
+name: Proxmox LXC Validation
+on:
+  workflow_dispatch:
+    inputs:
+      ctid:
+        description: Unused disposable container ID
+        required: true
+      bsm_commit:
+        description: Full BSM commit with local health authentication
+        required: true
+      storage:
+        description: Container disk storage
+        default: local-lvm
+      template_storage:
+        description: Container template storage
+        default: local
+permissions:
+  contents: read
+concurrency:
+  group: proxmox-validation
+  cancel-in-progress: false
+jobs:
+  validate:
+    environment: proxmox-validation
+    runs-on: [self-hosted, linux, proxmox-bsm-validation]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate disposable LXC lifecycle
+        env:
+          VALIDATION_CTID: ${{ inputs.ctid }}
+          VALIDATION_BSM_COMMIT: ${{ inputs.bsm_commit }}
+          VALIDATION_STORAGE: ${{ inputs.storage }}
+          VALIDATION_TEMPLATE_STORAGE: ${{ inputs.template_storage }}
+        run: |
+          set -euo pipefail
+          bash scripts/validate-proxmox.sh --ctid "$VALIDATION_CTID" \
+            --bsm-commit "$VALIDATION_BSM_COMMIT" --source-dir "$GITHUB_WORKSPACE" \
+            --storage "$VALIDATION_STORAGE" --template-storage "$VALIDATION_TEMPLATE_STORAGE" \
+            --disposable-confirmed | tee proxmox-validation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proxmox-validation-log
+          path: proxmox-validation.log
