@@ -32,7 +32,7 @@ from .git_sources import install_git
 from .install import install
 from .integration import inspect as inspect_integration
 from .releases import ReleaseError, discover, select
-from .service import ServiceError, SystemdService
+from .service import ServiceError, service_backend
 from .service_environment import write_environment
 from .setup import setup as setup_installation
 from .store import BusyError, Store
@@ -269,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps([release.to_dict() for release in releases], indent=2))
             return 0
         if args.command == "status":
-            print(json.dumps(SystemdService(config).status(), indent=2))
+            print(json.dumps(service_backend(config).status(), indent=2))
             return 0
         store = Store(config.state_dir)
         if args.command == "console-task":
@@ -374,7 +374,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "service-environment":
             with store.mutation("service:environment"):
                 try:
-                    state = SystemdService(config).status()
+                    state = service_backend(config).status()
                 except ServiceError as error:
                     if str(error) != f"Service is not installed: {config.service_unit}":
                         raise

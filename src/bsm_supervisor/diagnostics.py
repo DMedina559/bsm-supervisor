@@ -12,7 +12,7 @@ from . import runtime
 from .checkpoint_files import read_json
 from .config import Config
 from .integration import inspect, require_managed
-from .service import ServiceError, SystemdService
+from .service import ServiceError, service_backend
 
 
 def urls(config: Config) -> list[str]:
@@ -153,7 +153,7 @@ def doctor(config: Config, check_health: bool = True) -> dict:
     )
     state = None
     try:
-        state = SystemdService(config).status()
+        state = service_backend(config).status()
         add("service", True, "Service state: " + state.get("ActiveState", "unknown"))
         try:
             require_managed(config, state)

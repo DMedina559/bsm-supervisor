@@ -14,7 +14,7 @@ from .diagnostics import urls
 from .install import install
 from .integration import require_managed
 from .releases import discover, select
-from .service import ServiceError, SystemdService
+from .service import ServiceError, service_backend
 from .store import Store
 from .unit_refresh import refresh
 
@@ -41,7 +41,7 @@ def setup(
         with store.mutation("setup:preflight"):
             pass
         current = selection(config, store)
-        service = SystemdService(config)
+        service = service_backend(config)
         try:
             state = service.status()
         except ServiceError as error:

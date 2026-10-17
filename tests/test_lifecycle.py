@@ -72,7 +72,7 @@ class LifecycleTests(unittest.TestCase):
         with (
             patch("bsm_supervisor.console_admin.require_offline"),
             patch(
-                "bsm_supervisor.console_admin.SystemdService.status",
+                "bsm_supervisor.service.SystemdService.status",
                 return_value=self.stopped(),
             ),
             patch("bsm_supervisor.console_admin.refresh") as refresh,
@@ -91,7 +91,7 @@ class LifecycleTests(unittest.TestCase):
         )
         with (
             patch(
-                "bsm_supervisor.autostart.SystemdService.status",
+                "bsm_supervisor.service.SystemdService.status",
                 side_effect=[
                     {"ActiveState": "deactivating"},
                     {"ActiveState": "inactive"},
@@ -115,7 +115,7 @@ class LifecycleTests(unittest.TestCase):
         )
         with (
             patch(
-                "bsm_supervisor.autostart.SystemdService.status",
+                "bsm_supervisor.service.SystemdService.status",
                 return_value={"ActiveState": "deactivating"},
             ),
             patch("bsm_supervisor.autostart.time.monotonic", side_effect=[0, 9999]),
@@ -134,7 +134,7 @@ class LifecycleTests(unittest.TestCase):
             shutdown_event=stopping,
         )
         with patch(
-            "bsm_supervisor.autostart.SystemdService.status",
+            "bsm_supervisor.service.SystemdService.status",
             return_value={"ActiveState": "deactivating"},
         ):
             self.assertEqual(autostart.attempt(console)["state"], "skipped")

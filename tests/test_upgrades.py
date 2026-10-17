@@ -74,8 +74,8 @@ class UpgradeTests(unittest.TestCase):
         self.fail_readiness = False
         self.service = self
         self.patches = [
-            patch("bsm_supervisor.upgrades.SystemdService", return_value=self),
-            patch("bsm_supervisor.integration.SystemdService", return_value=self),
+            patch("bsm_supervisor.upgrades.service_backend", return_value=self),
+            patch("bsm_supervisor.integration.service_backend", return_value=self),
             patch("bsm_supervisor.upgrades._verify_environment"),
             patch(
                 "bsm_supervisor.upgrades.discover", return_value=[Release("4.0.0b7")]

@@ -22,7 +22,10 @@ class BootstrapArchiveTests(unittest.TestCase):
         # remain standalone before the supervisor package has been installed.
         installer = Path(__file__).resolve().parents[1] / "scripts/install-lxc.sh"
         self.program = (
-            installer.read_text()
+            (
+                installer.read_text()
+                + (installer.parent / "lib/install-systemd.sh").read_text()
+            )
             .split("<<'PYSOURCE'\n", 1)[1]
             .split("\nPYSOURCE\n", 1)[0]
         )
@@ -88,7 +91,10 @@ class BootstrapLauncherTests(unittest.TestCase):
     def test_launcher_supports_repeat_install_and_preserves_unrelated_commands(self):
         installer = Path(__file__).resolve().parents[1] / "scripts/install-lxc.sh"
         function = (
-            installer.read_text()
+            (
+                installer.read_text()
+                + (installer.parent / "lib/install-systemd.sh").read_text()
+            )
             .split("publish_launcher() {\n", 1)[1]
             .split("\n}\n", 1)[0]
         )
@@ -128,7 +134,10 @@ class BootstrapProvenanceTests(unittest.TestCase):
         self.base = Path(self.temp.name)
         installer = Path(__file__).resolve().parents[1] / "scripts/install-lxc.sh"
         self.program = (
-            installer.read_text()
+            (
+                installer.read_text()
+                + (installer.parent / "lib/install-systemd.sh").read_text()
+            )
             .split("<<'PYREVISION'\n", 1)[1]
             .split("\nPYREVISION\n", 1)[0]
         )

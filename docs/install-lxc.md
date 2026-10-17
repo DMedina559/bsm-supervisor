@@ -1,6 +1,7 @@
-# Install from an LXC console
+# Install on Linux or inside an LXC
 
-Run inside a Debian 12+ or Ubuntu 24.04+ systemd container as root. Python 3.11+
+Run on Debian 12+ or Ubuntu 24.04+ with systemd, as root. This includes
+unprivileged LXC containers, Linux VMs and bare-metal systems. Python 3.11+
 is required. The installer installs distribution packages, creates a permanent
 supervisor virtual environment, and provides launchers in `/usr/local/bin` and
 `/usr/bin`. The latter supports `pct enter` shells whose PATH omits local binaries.
@@ -156,3 +157,24 @@ the verified installation directory. Do not apply recursive permission changes t
 BSM data, configuration, supervisor state, or an external interpreter target. A
 `noexec` mount or a private ancestor directory requires separate correction. Updated
 supervisors also normalize verified PyPI environments when reusing an installation.
+
+## Install from a complete source checkout
+
+The generic Linux entry point uses the same installation engine as the LXC
+bootstrap. From the checkout root, run:
+
+```bash
+sudo bash scripts/install.sh --source-dir "$PWD" --ref dev
+```
+
+Use a full Git checkout with tags or a source archive with expanded version
+metadata. The installer requires APT, Python 3.11+ and a running systemd instance;
+it does not create or provision a VM or container. It preserves existing BSM data
+and service state. Use `--install-bsm-unit` only for a new installation with no
+existing managed unit, or complete setup with the CLI afterward.
+
+For a single downloaded bootstrap file, continue using `install-lxc.sh`. It
+resolves a pinned source bundle before loading the shared systemd installation
+module. Published releases with the older standalone installer remain supported.
+The generic `install.sh` entry point requires its sibling scripts from the source
+bundle and is not a standalone download.

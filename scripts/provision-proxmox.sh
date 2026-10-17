@@ -446,7 +446,9 @@ pct push "$ctid" "$work/bootstrap.tar.gz" /root/bsm-supervisor-bootstrap/source.
 pct exec "$ctid" -- tar --extract --gzip --file /root/bsm-supervisor-bootstrap/source.tar.gz \
     --directory /root/bsm-supervisor-bootstrap --no-same-owner --no-same-permissions
 echo "[4/4] Installing supervisor and managed BSM unit"
-pct exec "$ctid" -- bash /root/bsm-supervisor-bootstrap/scripts/install-lxc.sh \
+guest_installer=install-lxc.sh
+[[ ! -f $source_dir/scripts/install.sh ]] || guest_installer=install.sh
+pct exec "$ctid" -- bash "/root/bsm-supervisor-bootstrap/scripts/$guest_installer" \
     --source-dir /root/bsm-supervisor-bootstrap --ref "$ref" --package-version "$package_version" --install-bsm-unit
 pct exec "$ctid" -- rm -rf /root/bsm-supervisor-bootstrap
 printf '\nLXC %s is ready. Enter it with: pct enter %s\n' "$ctid" "$ctid"

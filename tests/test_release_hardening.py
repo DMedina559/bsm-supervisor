@@ -97,7 +97,7 @@ class ConsoleHardeningTests(unittest.TestCase):
                 self.console.jobs / (name + ".json"),
                 {"id": name, "created_at": timestamp, "state": "succeeded"},
             )
-        with patch("bsm_supervisor.web.SystemdService"):
+        with patch("bsm_supervisor.web.service_backend"):
             jobs = self.console.snapshot()["jobs"]
         self.assertEqual(jobs[0]["id"], "0" * 32)
 
@@ -248,7 +248,7 @@ class ReleaseVersionTests(unittest.TestCase):
 
     def test_embedded_installer_version_program_sets_metadata_in_copy(self):
         program = (
-            Path("scripts/install-lxc.sh")
+            Path("scripts/lib/install-systemd.sh")
             .read_text()
             .split("<<'PYVERSION'\n", 1)[1]
             .split("\nPYVERSION\n", 1)[0]

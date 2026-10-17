@@ -132,7 +132,7 @@ class SupervisorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "installations_dir"):
             Config.load(config)
 
-    @patch("bsm_supervisor.service.subprocess.run")
+    @patch("bsm_supervisor.backends.systemd.subprocess.run")
     def test_inactive_service_status_and_argument_boundary(self, run):
         run.return_value = subprocess.CompletedProcess(
             [], 0, "LoadState=loaded\nActiveState=inactive\nMainPID=0\n", ""
@@ -154,7 +154,7 @@ class SupervisorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             service.control("enable")
 
-    @patch("bsm_supervisor.service.subprocess.run")
+    @patch("bsm_supervisor.backends.systemd.subprocess.run")
     def test_repeated_systemd_conditions_are_retained_and_validated(self, run):
         write_environment(self.config)
         recovery = (
@@ -200,7 +200,7 @@ class SupervisorTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "managed service"):
                     require_managed(self.config, SystemdService(self.config).status())
 
-    @patch("bsm_supervisor.service.subprocess.run")
+    @patch("bsm_supervisor.backends.systemd.subprocess.run")
     def test_missing_service_and_timeout(self, run):
         run.return_value = subprocess.CompletedProcess([], 0, "LoadState=not-found", "")
         with self.assertRaisesRegex(ServiceError, "not installed"):
@@ -226,8 +226,8 @@ class SupervisorTests(unittest.TestCase):
 
     @patch("bsm_supervisor.operations.selection", return_value={"version": "4.0.0"})
     @patch("bsm_supervisor.operations.require_managed")
-    @patch("bsm_supervisor.cli.SystemdService.status", return_value={})
-    @patch("bsm_supervisor.cli.SystemdService.control")
+    @patch("bsm_supervisor.service.SystemdService.status", return_value={})
+    @patch("bsm_supervisor.service.SystemdService.control")
     def test_cli_records_service_failure_and_returns_error(
         self, control, status, managed, selected
     ):

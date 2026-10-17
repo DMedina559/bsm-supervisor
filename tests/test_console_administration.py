@@ -133,7 +133,7 @@ class ArchiveAdministrationTests(unittest.TestCase):
         with closing(sqlite3.connect(self.database)) as db, db:
             db.execute("UPDATE content SET value='new'")
         plan = console_admin.checkpoint_summary(self.config, checkpoint_id)
-        with patch("bsm_supervisor.console_admin.SystemdService") as service:
+        with patch("bsm_supervisor.console_admin.service_backend") as service:
             service.return_value.status.return_value = (
                 self.mock_service.return_value.status.return_value
             )

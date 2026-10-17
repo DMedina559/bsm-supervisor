@@ -22,7 +22,7 @@ from packaging.version import Version
 from . import runtime
 from .checkpoint_files import read_json, write_json
 from .config import Config
-from .service import SystemdService
+from .service import service_backend
 from .store import BusyError, Store
 
 PREFIX = Path("/opt/bsm-supervisor")
@@ -147,7 +147,7 @@ def _update(
                 raise UpdateError(
                     "An update needs inspection; use supervisor-update --resume"
                 )
-            state = SystemdService(config).status()
+            state = service_backend(config).status()
             if state.get("Description") != "Bedrock Server Manager (BSM Supervisor)":
                 raise UpdateError(
                     "Supervisor updates require an existing supervisor-managed BSM unit"
@@ -313,9 +313,9 @@ def _update(
             write_json(progress, plan)
         if plan["was_running"]:
             with store.mutation("supervisor:graceful-stop", preserve_on_error=True):
-                state = SystemdService(config).status()
+                state = service_backend(config).status()
                 if state.get("ActiveState") == "failed" and state.get("MainPID") == "0":
-                    SystemdService(config).reset_failed()
+                    service_backend(config).reset_failed()
                 runtime.shutdown(config)
         plan["phase"] = "refreshing"
         write_json(progress, plan)
