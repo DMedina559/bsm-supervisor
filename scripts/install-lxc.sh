@@ -5,6 +5,8 @@ umask 022
 ref=latest
 source_dir=
 package_version=
+initial_ref=$ref
+package_version_explicit=false
 install_unit=false
 config=/etc/bsm-supervisor/config.toml
 usage() {
@@ -26,6 +28,7 @@ while (($#)); do
     case "$1" in
         --ref|--source-dir|--config|--package-version)
             (($# >= 2)) || { usage; exit 2; }
+            [[ $1 != --package-version ]] || package_version_explicit=true
             if [[ $1 == --ref ]]; then ref=$2; elif [[ $1 == --config ]]; then config=$2; elif [[ $1 == --package-version ]]; then package_version=$2; else source_dir=$2; fi
             shift 2 ;;
         --install-bsm-unit) install_unit=true; shift ;;
@@ -33,6 +36,7 @@ while (($#)); do
         *) usage >&2; exit 2 ;;
     esac
 done
+if [[ $ref != "$initial_ref" ]] && ! $package_version_explicit; then package_version=; fi
 [[ $EUID == 0 ]] || { echo 'Run this script as root inside the LXC.' >&2; exit 1; }
 [[ $ref =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && $ref != *..* ]] || { echo 'Invalid ref.' >&2; exit 2; }
 [[ -d /run/systemd/system ]] || { echo 'A running systemd LXC is required.' >&2; exit 1; }

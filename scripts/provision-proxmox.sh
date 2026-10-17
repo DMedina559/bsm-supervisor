@@ -23,6 +23,8 @@ onboot=0
 ref=latest
 source_dir=
 package_version=
+initial_ref=$ref
+package_version_explicit=false
 dry_run=false
 creation_attempted=false
 interactive=false
@@ -64,6 +66,7 @@ while (($#)); do
         --help|-h) usage; exit 0 ;;
         --ctid|--bsm-env-file|--bsm-host|--hostname|--storage|--template-storage|--template|--bridge|--ip|--gateway|--nameserver|--vlan|--cores|--memory|--swap|--disk|--ref|--source-dir|--package-version)
             (($# >= 2)) || fail "Missing value for $1"
+            [[ $1 != --package-version ]] || package_version_explicit=true
             [[ $1 != --bsm-host ]] || bsm_host_explicit=1
             option=${1#--}; option=${option//-/_}
             [[ $option != ip ]] || option=address
@@ -280,6 +283,7 @@ if $dry_run; then
 fi
 exec 9>/run/lock/bsm-supervisor-provision.lock
 flock --nonblock 9 || fail 'Another supervisor provisioner is running.'
+if [[ $ref != "$initial_ref" ]] && ! $package_version_explicit; then package_version=; fi
 work=$(mktemp -d)
 prepare_environment > "$work/environment.json"
 cleanup() {

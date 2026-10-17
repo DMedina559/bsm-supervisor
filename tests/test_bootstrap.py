@@ -225,3 +225,36 @@ raise SystemExit(0 if status=='200' else 22)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("Public repository resource not found", result.stderr)
                 self.assertNotIn("GitHub token for private", result.stderr)
+
+
+class ReleaseLauncherVersionTests(unittest.TestCase):
+    def test_overriding_pinned_ref_drops_implicit_release_version(self):
+        for name in ("install-lxc.sh", "provision-proxmox.sh"):
+            with self.subTest(script=name):
+                text = (
+                    Path(__file__).resolve().parents[1] / "scripts" / name
+                ).read_text()
+                text = text.replace(
+                    "ref=latest\n", "ref=" + "a" * 40 + "\n", 1
+                ).replace("package_version=\n", "package_version=0.1.0\n", 1)
+                prefix = text.split("[[ $EUID == 0 ]]", 1)[0]
+                resolution = next(
+                    line
+                    for line in text.splitlines()
+                    if line.startswith('if [[ $ref != "$initial_ref" ]]')
+                )
+                program = (
+                    prefix + "\n" + resolution + '\nprintf "%s" "$package_version"'
+                )
+                for flags, expected in (
+                    ([], "0.1.0"),
+                    (["--ref", "dev"], ""),
+                    (["--ref", "dev", "--package-version", "0.2.0b1"], "0.2.0b1"),
+                ):
+                    result = subprocess.run(
+                        ["bash", "-c", program, "test", *flags],
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout, expected)
