@@ -14,6 +14,7 @@ from . import (
     checkpoints,
     cleanup,
     console_admin,
+    data_permissions,
     diagnostics,
     events,
     operations,
@@ -136,6 +137,8 @@ def parser() -> argparse.ArgumentParser:
     updater.add_argument("--maintenance-confirmed", action="store_true", required=True)
     environment = commands.add_parser("service-environment")
     environment.add_argument("--offline-confirmed", action="store_true", required=True)
+    permissions = commands.add_parser("permissions-repair")
+    permissions.add_argument("--offline-confirmed", action="store_true", required=True)
     refresh_unit = commands.add_parser("unit-refresh")
     refresh_unit.add_argument("--user", default="bsm")
     refresh_unit.add_argument("--offline-confirmed", action="store_true", required=True)
@@ -389,6 +392,8 @@ def main(argv: list[str] | None = None) -> int:
                         )
                 write_environment(config)
             print("Private managed service environment written")
+        elif args.command == "permissions-repair":
+            print(json.dumps(data_permissions.repair(config, store), indent=2))
         elif args.command == "unit-refresh":
             refresh(config, store, args.user)
             print("Managed unit and environment refreshed; BSM remains stopped")

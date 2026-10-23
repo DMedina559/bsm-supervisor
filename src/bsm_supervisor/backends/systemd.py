@@ -39,7 +39,8 @@ class SystemdService:
                 self.unit,
                 "--property=LoadState,ActiveState,SubState,"
                 "MainPID,Result,ExecStart,ExecCondition,Job,"
-                "UnsetEnvironment,EnvironmentFiles,User,Description,BindsTo,After",
+                "UnsetEnvironment,EnvironmentFiles,User,Group,Description,"
+                "BindsTo,After",
             ]
         )
         values: dict[str, str] = {}

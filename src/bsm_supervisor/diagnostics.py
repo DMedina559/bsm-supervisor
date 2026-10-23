@@ -7,6 +7,7 @@ import pwd
 import shutil
 import sqlite3
 import subprocess
+from pathlib import Path
 
 from . import runtime
 from .checkpoint_files import read_json
@@ -202,6 +203,17 @@ def doctor(config: Config, check_health: bool = True) -> dict:
                     "Check ownership, traversal permissions, "
                     "and interpreter accessibility",
                 )
+            backups = Path(inspect(config)["paths"]["backups"])
+            if backups.is_dir() and not backups.is_symlink():
+                for path in (backups, *sorted(backups.iterdir())):
+                    if path.is_dir() and not path.is_symlink():
+                        add(
+                            "service-access:backup:" + path.name,
+                            accessible(path, account.pw_uid, groups, 7),
+                            "Service account access to backup directory: " + str(path),
+                            "Stop BSM and run permissions-repair --offline-confirmed; "
+                            "repair external backup paths separately",
+                        )
         except KeyError:
             add(
                 "service-account",

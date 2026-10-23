@@ -114,3 +114,29 @@ Stopping the console leaves BSM running unless `stop_bsm_with_supervisor` is
 and also stops BSM on console failure or restart. Change it while BSM is stopped
 and refresh the managed unit, or use Settings in the web console. See
 [console lifecycle settings](web-console.md#couple-bsm-to-the-supervisor-console).
+
+### Repair runtime data permissions
+
+If BSM reports permission denied while backing up or updating a Minecraft server,
+run `bsm-supervisor doctor --no-health` to check backup-directory access. Files
+copied or created as root can leave individual server backup folders unwritable
+although `/srv/bsm` itself has the correct owner.
+
+Stop BSM and any other writers, then run as root:
+
+```sh
+bsm-supervisor graceful-stop
+bsm-supervisor permissions-repair --offline-confirmed
+bsm-supervisor start --wait
+```
+
+The repair uses the configured systemd unit's User and Group (or the user's primary
+group), assigns BSM data and configuration to that account, and restores owner
+read/write permissions plus directory traversal. Existing group/other permissions
+are preserved, so private files remain private. It leaves Supervisor state,
+installations, startup gates and symlink targets untouched. Nested mounts,
+hard-linked files and retained restore workspaces require separate attention;
+validation rejects these before changing data. Paths outside the configured BSM
+data and configuration roots must be repaired separately. Checkpoint restore
+continues to preserve recorded ownership; run repair afterward if that ownership
+belongs to a different account or contains previously root-owned runtime data.
