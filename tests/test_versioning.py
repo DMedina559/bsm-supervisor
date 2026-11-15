@@ -139,18 +139,14 @@ class VersioningTests(unittest.TestCase):
 
     def test_release_workflow_sets_build_version_without_dirtying_source(self):
         workflow = Path(".github/workflows/release.yml").read_text()
-        step = workflow.split(
-            "- name: Set the package version from the release tag", 1
-        )[1]
-        program = textwrap.dedent(
-            step.split("python - <<'PY'\n", 1)[1].split("          PY\n", 1)[0]
-        )
+        self.assertIn("scripts/release_helper.py prepare-version", workflow)
+        helper = Path("scripts/release_helper.py").resolve()
         (self.checkout / "pyproject.toml").write_text("[tool.setuptools_scm]\n")
         output = self.root / "github-env"
         result = subprocess.run(
-            [sys.executable, "-I", "-c", program],
+            [sys.executable, "-I", str(helper), "prepare-version", "v0.2.0b1"],
             cwd=self.checkout,
-            env={**os.environ, "RELEASE_TAG": "v0.2.0b1", "GITHUB_ENV": str(output)},
+            env={**os.environ, "GITHUB_ENV": str(output)},
             capture_output=True,
             text=True,
             timeout=15,

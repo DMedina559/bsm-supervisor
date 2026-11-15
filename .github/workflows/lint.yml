@@ -1,0 +1,43 @@
+name: Lint and Types
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact source commit to validate
+        required: false
+        default: ''
+        type: string
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install dependencies
+        run: python -m pip install -e '.[dev,all]' shellcheck-py
+      - name: Style, types, and shellcheck
+        run: |
+          pre-commit run --all-files
+          shellcheck scripts/*.sh scripts/lib/*.sh
