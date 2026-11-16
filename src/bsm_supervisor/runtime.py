@@ -80,7 +80,9 @@ def process_owner(pid: int) -> int:
 
 def control_record(config: Config, status: dict[str, str]) -> dict:
     """Bind local credentials to the current systemd PID and its process generation."""
-    path = config.config_dir / "web_server.control.json"
+    runtime_path = config.config_dir / "runtime" / "web_server.control.json"
+    legacy_path = config.config_dir / "web_server.control.json"
+    path = runtime_path if runtime_path.exists() or not legacy_path.exists() else legacy_path
     text, info = _read_private_text(
         path,
         65536,

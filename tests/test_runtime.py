@@ -141,7 +141,8 @@ class RuntimeTests(unittest.TestCase):
             if line.startswith("btime ")
         )
         self.record["created_at"] = boot + 100 / os.sysconf("SC_CLK_TCK")
-        path = self.config.config_dir / "web_server.control.json"
+        path = self.config.config_dir / "runtime" / "web_server.control.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(self.record))
         path.chmod(0o600)
         command = (
