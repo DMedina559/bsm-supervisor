@@ -17,7 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
 from . import runtime
 from .checkpoint_files import read_json, write_json
@@ -215,11 +215,6 @@ def _update(
                                     "Public release/ref was not found; "
                                     "select a published tag or dev"
                                 ) from None
-                        if not sys.stdin.isatty():
-                            raise UpdateError(
-                                "Repository access requires a GitHub token; "
-                                "supply GH_TOKEN or the console token field"
-                            ) from None
                         token = getpass.getpass(
                             "GitHub token for private repository access: "
                         )
@@ -242,7 +237,12 @@ def _update(
                         )
                     plan["ref"] = ref = tag
                 if ref.startswith("v"):
-                    candidate_version = str(Version(ref[1:]))
+                    try:
+                        candidate_version = str(Version(ref[1:]))
+                    except InvalidVersion as exc:
+                        raise UpdateError(
+                            "Release tag must contain a normalized version"
+                        ) from exc
                     if ref != "v" + candidate_version:
                         raise UpdateError(
                             "Release tag must contain a normalized version"

@@ -76,15 +76,26 @@ class SystemdService:
         self._run([action, self.unit])
 
 
+def _quote_systemd_arg(value: object) -> str:
+    """Escape systemd specifiers and quote arguments containing special characters."""
+    text = str(value).replace("%", "%%")
+    if not text or any(ch.isspace() or ch in "\"'\\;" for ch in text):
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return text
+
+
 def managed_command(config: Config) -> str:
     """Build the exact managed launch command, locking before Python imports BSM."""
-    python = config.installations_dir / "current/bin/python"
-    maintenance = config.config_dir / "supervisor-maintenance.lock"
+    python = _quote_systemd_arg(config.installations_dir / "current/bin/python")
+    maintenance = _quote_systemd_arg(config.config_dir / "supervisor-maintenance.lock")
+    config_dir = _quote_systemd_arg(config.config_dir)
+    data_dir = _quote_systemd_arg(config.data_dir)
+    host = _quote_systemd_arg(config.bsm_host)
     return (
         f"/usr/bin/flock --shared --nonblock --no-fork {maintenance} "
         f"{python} -I -m bedrock_server_manager "
-        f"--config-dir {config.config_dir} --data-dir {config.data_dir} "
-        f"web start --mode direct --host {config.bsm_host} --port {config.bsm_port}"
+        f"--config-dir {config_dir} --data-dir {data_dir} "
+        f"web start --mode direct --host {host} --port {config.bsm_port}"
     )
 
 
@@ -92,9 +103,11 @@ def guard_command(config: Config) -> str:
     """Run the independently installed supervisor guard before starting BSM."""
     import sys
 
+    executable = _quote_systemd_arg(sys.executable)
+    config_dir = _quote_systemd_arg(config.config_dir)
     return (
-        f"{sys.executable} -I -m bsm_supervisor.launchguard "
-        f"--config-dir {config.config_dir}"
+        f"{executable} -I -m bsm_supervisor.launchguard "
+        f"--config-dir {config_dir}"
     )
 
 

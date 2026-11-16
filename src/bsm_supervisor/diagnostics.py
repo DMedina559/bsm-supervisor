@@ -203,8 +203,11 @@ def doctor(config: Config, check_health: bool = True) -> dict:
                     "Check ownership, traversal permissions, "
                     "and interpreter accessibility",
                 )
-            backups = Path(inspect(config)["paths"]["backups"])
-            if backups.is_dir() and not backups.is_symlink():
+            try:
+                backups: Path | None = Path(inspect(config)["paths"]["backups"])
+            except (OSError, ValueError, sqlite3.Error):
+                backups = None
+            if backups is not None and backups.is_dir() and not backups.is_symlink():
                 for path in (backups, *sorted(backups.iterdir())):
                     if path.is_dir() and not path.is_symlink():
                         add(

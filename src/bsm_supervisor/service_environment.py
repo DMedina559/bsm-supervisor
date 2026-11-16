@@ -1,5 +1,6 @@
 """Pin BSM bootstrap environment without exposing database credentials in units."""
 
+import errno
 import json
 import os
 import stat
@@ -33,7 +34,7 @@ def write_environment(config: Config) -> None:
     descriptor, name = tempfile.mkstemp(prefix=".bsm-runtime-", dir=config.state_dir)
     temporary = Path(name)
     try:
-        with os.fdopen(descriptor, "w") as stream:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             stream.write(contents(config))
             stream.flush()
             os.fsync(stream.fileno())
@@ -46,19 +47,26 @@ def write_environment(config: Config) -> None:
 def verify_environment(config: Config) -> None:
     """Reject drift before filesystem/database maintenance; never echo secrets."""
     path = config.state_dir / "bsm-runtime.env"
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
-        info = path.lstat()
-        if (
-            not stat.S_ISREG(info.st_mode)
-            or info.st_mode & 0o077
-            or info.st_size > 65536
-        ):
-            raise ValueError("Invalid managed environment file permissions")
-        if path.read_text() != contents(config):
-            raise ValueError(
-                "Managed environment changed; regenerate it while BSM is stopped"
-            )
-    except FileNotFoundError as exc:
+        fd = os.open(path, flags)
+        with os.fdopen(fd, "r", encoding="utf-8") as stream:
+            info = os.fstat(stream.fileno())
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_mode & 0o077
+                or info.st_size > 65536
+            ):
+                raise ValueError("Invalid managed environment file permissions")
+            if stream.read() != contents(config):
+                raise ValueError(
+                    "Managed environment changed; regenerate it while BSM is stopped"
+                )
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise ValueError("Invalid managed environment file permissions") from None
+        if not isinstance(exc, FileNotFoundError):
+            raise
         raise ValueError(
             "Run unit-refresh --offline-confirmed while BSM is stopped "
             "to generate the managed service environment"

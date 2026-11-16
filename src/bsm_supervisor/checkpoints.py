@@ -190,94 +190,105 @@ def create(config: Config, store: Store) -> dict:
         final.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         staging = final.parent / (".partial-" + checkpoint_id)
         staging.mkdir(mode=0o700)
-        store.note(operation_id, "Capturing checkpoint " + checkpoint_id)
-        database = Path(report["database_path"]) if report["database_path"] else None
-        skip = {
-            config.config_dir.resolve() / name
-            for name in (
-                "web_server.lock",
-                "web_server.pid",
-                "web_server.control.json",
-                "supervisor-maintenance.lock",
-                "supervisor-recovery.required",
-                "supervisor-upgrade.required",
+        try:
+            store.note(operation_id, "Capturing checkpoint " + checkpoint_id)
+            database = Path(report["database_path"]) if report["database_path"] else None
+            skip = {
+                config.config_dir.resolve() / name
+                for name in (
+                    "web_server.lock",
+                    "web_server.pid",
+                    "web_server.control.json",
+                    "supervisor-maintenance.lock",
+                    "supervisor-recovery.required",
+                    "supervisor-upgrade.required",
+                )
+            }
+            if database is not None:
+                skip.update(Path(str(database) + suffix) for suffix in ("-wal", "-shm"))
+            if any(any(root.glob(".bsm-restore-*")) for root in authorized):
+                raise ValueError("Recover or clean up previous restore workspaces first")
+            estimates = [inventory(root, skip=skip) for root in authorized]
+            total = sum(
+                item.get("size", 0) for entries in estimates for item in entries
             )
-        }
-        if database is not None:
-            skip.update(Path(str(database) + suffix) for suffix in ("-wal", "-shm"))
-        if any(any(root.glob(".bsm-restore-*")) for root in authorized):
-            raise ValueError("Recover or clean up previous restore workspaces first")
-        estimates = [inventory(root, skip=skip) for root in authorized]
-        total = sum(item.get("size", 0) for entries in estimates for item in entries)
-        wal = Path(str(database) + "-wal") if database is not None else None
-        wal_size = wal.stat().st_size if wal is not None and wal.exists() else 0
-        if shutil.disk_usage(staging).free < (total + wal_size) * 2 + 64 * 1024 * 1024:
-            raise ValueError("Insufficient checkpoint disk space")
-        overrides = {}
-        snapshot = staging / "database.sqlite3"
-        if database is not None and database.exists():
-            _sqlite_snapshot(database, snapshot)
-            overrides[database] = snapshot
-        payload = staging / "payload"
-        payload.mkdir()
-        records: list[dict] = []
-        for index, root in enumerate(authorized):
-            entries = inventory(root, skip=skip, overrides=overrides)
-            for item in entries:
-                if item["kind"] == "symlink":
-                    source = root / item["name"]
-                    if not covered(source.parent / item["target"], authorized):
-                        raise ValueError(
-                            "Symlink targets must be included in checkpoint_paths"
-                        )
-            copied = payload / str(index)
-            shutil.copytree(
-                root,
-                copied,
-                symlinks=True,
-                ignore=lambda directory, names: [
-                    name for name in names if Path(directory) / name in skip
-                ],
-            )
+            wal = Path(str(database) + "-wal") if database is not None else None
+            wal_size = wal.stat().st_size if wal is not None and wal.exists() else 0
             if (
-                database is not None
-                and database in overrides
-                and covered(database, [root])
+                shutil.disk_usage(staging).free
+                < (total + wal_size) * 2 + 64 * 1024 * 1024
             ):
-                destination = copied / database.relative_to(root)
-                shutil.copyfile(snapshot, destination)
-            verify_payload(copied, entries)
-            records.append({"id": str(index), "path": str(root), "entries": entries})
-        snapshot.unlink(missing_ok=True)
-        manifest: dict = {
-            "format_version": FORMAT_VERSION,
-            "operation_id": operation_id,
-            "id": checkpoint_id,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "installation": selection(config, store),
-            "schema_revision": report["schema_revision"],
-            "database_path": report["database_path"],
-            "total_bytes": sum(
-                item.get("size", 0) for record in records for item in record["entries"]
-            ),
-            "roots": records,
-        }
-        write_json(staging / "manifest.json", manifest)
-        # Flush copied files before publishing the complete checkpoint.
-        for record in records:
-            for item in record["entries"]:
-                path = payload / record["id"] / item["name"]
-                if item["kind"] == "file":
-                    with path.open("rb") as stream:
-                        os.fsync(stream.fileno())
-            for item in reversed(record["entries"]):
-                if item["kind"] == "directory":
-                    sync_directory(payload / record["id"] / item["name"])
-        sync_directory(payload)
-        require_offline(config)
-        os.replace(staging, final)
-        sync_directory(final.parent)
-        return manifest
+                raise ValueError("Insufficient checkpoint disk space")
+            overrides = {}
+            snapshot = staging / "database.sqlite3"
+            if database is not None and database.exists():
+                _sqlite_snapshot(database, snapshot)
+                overrides[database] = snapshot
+            payload = staging / "payload"
+            payload.mkdir()
+            records: list[dict] = []
+            for index, root in enumerate(authorized):
+                entries = inventory(root, skip=skip, overrides=overrides)
+                for item in entries:
+                    if item["kind"] == "symlink":
+                        source = root / item["name"]
+                        if not covered(source.parent / item["target"], authorized):
+                            raise ValueError(
+                                "Symlink targets must be included in checkpoint_paths"
+                            )
+                copied = payload / str(index)
+                shutil.copytree(
+                    root,
+                    copied,
+                    symlinks=True,
+                    ignore=lambda directory, names: [
+                        name for name in names if Path(directory) / name in skip
+                    ],
+                )
+                if (
+                    database is not None
+                    and database in overrides
+                    and covered(database, [root])
+                ):
+                    destination = copied / database.relative_to(root)
+                    shutil.copyfile(snapshot, destination)
+                verify_payload(copied, entries)
+                records.append(
+                    {"id": str(index), "path": str(root), "entries": entries}
+                )
+            snapshot.unlink(missing_ok=True)
+            manifest: dict = {
+                "format_version": FORMAT_VERSION,
+                "operation_id": operation_id,
+                "id": checkpoint_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "installation": selection(config, store),
+                "schema_revision": report["schema_revision"],
+                "database_path": report["database_path"],
+                "total_bytes": sum(
+                    item.get("size", 0) for record in records for item in record["entries"]
+                ),
+                "roots": records,
+            }
+            write_json(staging / "manifest.json", manifest)
+            # Flush copied files before publishing the complete checkpoint.
+            for record in records:
+                for item in record["entries"]:
+                    path = payload / record["id"] / item["name"]
+                    if item["kind"] == "file":
+                        with path.open("rb") as stream:
+                            os.fsync(stream.fileno())
+                for item in reversed(record["entries"]):
+                    if item["kind"] == "directory":
+                        sync_directory(payload / record["id"] / item["name"])
+            sync_directory(payload)
+            require_offline(config)
+            os.replace(staging, final)
+            sync_directory(final.parent)
+            return manifest
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
 
 
 def pin(config: Config, store: Store, checkpoint_id: str, enabled: bool) -> None:

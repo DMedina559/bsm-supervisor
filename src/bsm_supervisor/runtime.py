@@ -1,5 +1,7 @@
 """Authenticated local runtime control with verified service/process identity."""
 
+import errno
+import http.client
 import ipaddress
 import json
 import math
@@ -30,6 +32,28 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def _read_private_text(
+    path: Path, max_bytes: int, error_cls: type[Exception], message: str
+) -> tuple[str, os.stat_result]:
+    """Atomically open a private regular file without following symlinks."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise error_cls(message) from None
+        raise
+    with os.fdopen(fd, "r", encoding="utf-8") as stream:
+        info = os.fstat(stream.fileno())
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_mode & 0o077
+            or info.st_size > max_bytes
+        ):
+            raise error_cls(message)
+        return stream.read(), info
+
+
 def bearer(config: Config) -> str:
     """Read a private operator-provided BSM token without logging it."""
     path = config.api_token_file
@@ -37,12 +61,13 @@ def bearer(config: Config) -> str:
         raise AuthenticationError(
             "Configure api_token_file for authenticated readiness"
         )
-    info = path.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > 16384:
-        raise AuthenticationError(
-            "api_token_file must be a private regular file (0600)"
-        )
-    token = path.read_text().strip()
+    text, _ = _read_private_text(
+        path,
+        16384,
+        AuthenticationError,
+        "api_token_file must be a private regular file (0600)",
+    )
+    token = text.strip()
     if not token or any(character.isspace() for character in token):
         raise AuthenticationError("api_token_file must contain one BSM bearer token")
     return token
@@ -56,10 +81,13 @@ def process_owner(pid: int) -> int:
 def control_record(config: Config, status: dict[str, str]) -> dict:
     """Bind local credentials to the current systemd PID and its process generation."""
     path = config.config_dir / "web_server.control.json"
-    info = path.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > 65536:
-        raise RuntimeErrorBase("Invalid BSM runtime control record permissions")
-    record = json.loads(path.read_text())
+    text, info = _read_private_text(
+        path,
+        65536,
+        RuntimeErrorBase,
+        "Invalid BSM runtime control record permissions",
+    )
+    record = json.loads(text)
     if not isinstance(record, dict) or not isinstance(record.get("config_dir"), str):
         raise RuntimeErrorBase("Invalid BSM runtime control identity")
     pid = record.get("pid")
@@ -71,10 +99,15 @@ def control_record(config: Config, status: dict[str, str]) -> dict:
         )
     ticks = int(process_generation(pid))
     boot = next(
-        int(line.split()[1])
-        for line in Path("/proc/stat").read_text().splitlines()
-        if line.startswith("btime ")
+        (
+            int(line.split()[1])
+            for line in Path("/proc/stat").read_text().splitlines()
+            if line.startswith("btime ")
+        ),
+        None,
     )
+    if boot is None:
+        raise RuntimeErrorBase("Missing boot time in /proc/stat")
     created = boot + ticks / os.sysconf("SC_CLK_TCK")
     if (
         type(record.get("created_at")) not in (int, float)
@@ -161,7 +194,7 @@ def request(
                 "BSM readiness/shutdown authentication rejected"
             ) from None
         raise RuntimeErrorBase(f"BSM runtime returned HTTP {code}") from None
-    except (OSError, URLError, ValueError):
+    except (OSError, URLError, ValueError, http.client.HTTPException):
         raise RuntimeErrorBase("BSM runtime request failed") from None
 
 
@@ -182,8 +215,6 @@ def ready(config: Config, expected_version: str) -> dict:
     else:
         health = request(record, "/api/health", token=bearer(config))
         observed_version = None
-    if not isinstance(health, dict):
-        raise RuntimeErrorBase("BSM readiness response lacks application health")
     checks = health.get("checks")
     if (
         health.get("ready") is not True

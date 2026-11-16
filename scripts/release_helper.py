@@ -73,6 +73,8 @@ def package_assets(release_tag: str, release_sha: str) -> None:
     for name in ("install-lxc.sh", "provision-proxmox.sh"):
         path = root / name
         content = path.read_text(encoding="utf-8")
+        if "ref=latest\n" not in content or "package_version=\n" not in content:
+            raise SystemExit(f"Expected ref/package_version placeholders in {path}")
         content = content.replace("ref=latest\n", f"ref={release_sha}\n", 1)
         content = content.replace("package_version=\n", f"package_version={release_tag[1:]}\n", 1)
         path.write_text(content, encoding="utf-8")

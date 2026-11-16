@@ -167,3 +167,23 @@ dialog::backdrop { background: var(--bsm-overlay); backdrop-filter: blur(3px); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
 
 .job-identity { font: 10px/1.6 var(--bsm-mono); color: var(--bsm-muted); overflow-wrap: anywhere; }
+.subsection { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--bsm-border); }
+.subsection-title { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--bsm-muted); margin: 0 0 10px; }
+.action-group { margin: 14px 0; padding-top: 12px; border-top: 1px solid var(--bsm-border); }
+.action-group:first-of-type { margin-top: 8px; padding-top: 0; border-top: 0; }
+.action-group-label { display: block; font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; color: var(--bsm-muted); margin-bottom: 8px; }
+.day-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.day-chip { display: inline-flex; align-items: center; gap: 5px; margin: 0; padding: 5px 10px; border: 1px solid var(--bsm-border); border-radius: 999px; background: var(--bsm-input); font-size: 11px; font-weight: 550; cursor: pointer; user-select: none; }
+.day-chip:has(input:checked) { border-color: color-mix(in srgb, var(--bsm-accent) 45%, var(--bsm-border)); background: var(--bsm-accent-soft); color: var(--bsm-accent); }
+.day-chip input { margin: 0; width: 13px; height: 13px; }
+.schedule-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.backup-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
+.backup-row:hover { background: var(--bsm-surface-raised); }
+.backup-row[data-selected="true"] { border-color: color-mix(in srgb, var(--bsm-accent) 45%, var(--bsm-border)); background: var(--bsm-accent-soft); }
+.backup-row-meta { font-size: 11px; color: var(--bsm-muted); }
+.output-panel .panel-heading { justify-content: space-between; }
+.output-heading-left { display: flex; align-items: center; gap: 10px; }
+.output-actions { display: flex; gap: 8px; }
+.panel .output-actions .action-button { min-height: 30px; padding: 4px 10px; font-size: 11px; }
+#error:not(:empty) { cursor: pointer; }
+#error:not(:empty)::after { content: " (click to dismiss)"; font-size: 10px; opacity: .75; }

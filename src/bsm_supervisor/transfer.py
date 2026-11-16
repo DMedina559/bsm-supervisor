@@ -1,5 +1,6 @@
 """Portable verified checkpoints with optional streaming authenticated encryption."""
 
+import errno
 import json
 import os
 import shutil
@@ -79,13 +80,13 @@ def _crypt(source: Path, target: Path, password: bytes, decrypt: bool) -> None:
         cipher = Cipher(algorithms.AES(key), modes.GCM(nonce))
         context = cipher.decryptor() if decrypt else cipher.encryptor()
         context.authenticate_additional_data(header)
-        while size:
-            block = incoming.read(min(CHUNK, size))
-            if not block:
-                raise ValueError("Truncated checkpoint archive")
-            outgoing.write(context.update(block))
-            size -= len(block)
         try:
+            while size:
+                block = incoming.read(min(CHUNK, size))
+                if not block:
+                    raise ValueError("Truncated checkpoint archive")
+                outgoing.write(context.update(block))
+                size -= len(block)
             if decrypt:
                 outgoing.write(
                     cast(AEADDecryptionContext, context).finalize_with_tag(
@@ -96,7 +97,11 @@ def _crypt(source: Path, target: Path, password: bytes, decrypt: bool) -> None:
                 outgoing.write(context.finalize())
                 outgoing.write(cast(AEADEncryptionContext, context).tag)
         except InvalidTag as exc:
+            target.unlink(missing_ok=True)
             raise ValueError("Checkpoint authentication failed") from exc
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
         outgoing.flush()
         os.fsync(outgoing.fileno())
 
@@ -138,8 +143,10 @@ def export_checkpoint(
         manifest = checkpoints.verify(config, checkpoint_id)
         root = checkpoints.checkpoint_path(config, checkpoint_id)
         needed = manifest["total_bytes"] + MAX_MANIFEST_BYTES + 64 * 1024**2
+        same_fs = config.state_dir.stat().st_dev == destination.parent.stat().st_dev
         for filesystem in (config.state_dir, destination.parent):
-            if shutil.disk_usage(filesystem).free < needed:
+            required = needed + (manifest["total_bytes"] if same_fs else 0)
+            if shutil.disk_usage(filesystem).free < required:
                 raise ValueError("Insufficient free space for checkpoint export")
         # Both temporary directories are private, but plaintext is always local.
         with (
@@ -170,7 +177,27 @@ def export_checkpoint(
                 os.fsync(stream.fileno())
             if destination_guard(destination, require_mount) != mounted:
                 raise ValueError("Backup mount changed during export")
-            os.link(staged, destination)
+            try:
+                os.link(staged, destination)
+            except OSError as exc:
+                if exc.errno not in (
+                    errno.EPERM,
+                    getattr(errno, "ENOTSUP", errno.EOPNOTSUPP),
+                    errno.EOPNOTSUPP,
+                ):
+                    raise
+                fd = os.open(
+                    destination,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                )
+                with (
+                    staged.open("rb") as src,
+                    os.fdopen(fd, "wb") as dst,
+                ):
+                    shutil.copyfileobj(src, dst, CHUNK)
+                    dst.flush()
+                    os.fsync(dst.fileno())
             sync_directory(destination.parent)
         return {
             "id": checkpoint_id,
@@ -226,7 +253,11 @@ def import_checkpoint(
             meta = bundle.getinfo("manifest.json")
             if meta.file_size > MAX_MANIFEST_BYTES:
                 raise ValueError("Manifest exceeds its size limit")
-            manifest = json.loads(bundle.read(meta))
+            with bundle.open(meta) as incoming:
+                raw_manifest = incoming.read(MAX_MANIFEST_BYTES + 1)
+            if len(raw_manifest) > MAX_MANIFEST_BYTES:
+                raise ValueError("Manifest exceeds its size limit")
+            manifest = json.loads(raw_manifest)
             if not isinstance(manifest, dict):
                 raise ValueError("Invalid checkpoint manifest")
             checkpoint_id = manifest.get("id", "")
@@ -263,7 +294,24 @@ def import_checkpoint(
                                 "Archive payload exceeds its declared or allowed size"
                             )
                         with bundle.open(info) as incoming, path.open("xb") as outgoing:
-                            shutil.copyfileobj(incoming, outgoing, CHUNK)
+                            written = 0
+                            while True:
+                                chunk = incoming.read(CHUNK)
+                                if not chunk:
+                                    break
+                                written += len(chunk)
+                                if written > item["size"] or (
+                                    total - info.file_size + written > max_bytes
+                                ):
+                                    raise ValueError(
+                                        "Archive payload exceeds its declared "
+                                        "or allowed size"
+                                    )
+                                outgoing.write(chunk)
+                            if written != item["size"]:
+                                raise ValueError(
+                                    "Archive payload size mismatch"
+                                )
             if expected != {m.filename for m in members}:
                 raise ValueError("Unexpected archive members")
         checkpoints.verify(sandbox, checkpoint_id)

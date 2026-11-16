@@ -135,11 +135,9 @@ Usage: provision-proxmox.sh [OPTIONS]
                              Defaults: 2 CPUs, 2048 MB RAM, 512 MB swap, 16 GB disk
   --onboot                   Start container when host boots
   --ref BRANCH_OR_SHA         Supervisor release/ref (default: latest stable)
+  --package-version VERSION   Expected supervisor package version
   --source-dir CHECKOUT       Use local source instead of private GitHub download
   --interactive              Guided Default/Advanced setup wizard
-  --profile JSON_FILE         Load reusable, non-secret defaults; CLI values override
-  --save-profile JSON_FILE    Save validated reusable defaults (mode 0600)
-  --resume CTID               Resume only this recorded, unchanged deployment
   --dry-run                  Read-only preflight and command preview
   --help
 The container is always unprivileged. Resume requires the recorded ownership marker
@@ -354,10 +352,6 @@ if $interactive; then
         case "$mode" in ''|1) mode=default ;; 2) mode=advanced ;; *) mode="exit" ;; esac
     fi
     [[ $mode != exit ]] || exit 0
-    if ! $resume; then
-    available_kib=$(pvesm status --storage "$storage" --content rootdir | awk 'NR>1 {print $6; exit}')
-    [[ $available_kib =~ ^[0-9]+$ && $available_kib -ge $((disk * 1048576)) ]] || fail 'Selected storage has insufficient free space for the requested disk.'
-fi
 if [[ -z $ctid ]]; then ctid=$(pvesh get /cluster/nextid); fi
     if [[ $mode == advanced ]]; then
         ask ctid 'Container ID' "$ctid"
