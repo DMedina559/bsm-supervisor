@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77", "setuptools-scm>=8,<10"]
+requires = ["setuptools>=77", "setuptools-scm>=8,<11"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -28,7 +28,7 @@ web = ["uvicorn>=0.32,<1"]
 transfer = ["cryptography>=43,<52"]
 all = ["uvicorn>=0.32,<1", "cryptography>=43,<52"]
 dev = [
-    "setuptools-scm>=8,<10",
+    "setuptools-scm>=8,<11",
     "black>=26.10,<27",
     "flake8>=7.4,<8",
     "isort>=9,<10",
