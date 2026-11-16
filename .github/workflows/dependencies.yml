@@ -9,13 +9,14 @@ on:
         default: ''
         type: string
   push:
-    branches: [main]
+    branches: [dev]
     paths:
       - pyproject.toml
       - package.json
       - package-lock.json
       - .github/workflows/dependencies.yml
   pull_request:
+    branches: [dev]
     paths:
       - pyproject.toml
       - package.json

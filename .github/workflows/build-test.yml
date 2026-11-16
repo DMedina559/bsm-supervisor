@@ -10,8 +10,9 @@ on:
         type: string
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [dev]
   pull_request:
+    branches: [dev]
 
 permissions:
   contents: read
