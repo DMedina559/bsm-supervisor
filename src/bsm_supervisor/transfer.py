@@ -309,9 +309,7 @@ def import_checkpoint(
                                     )
                                 outgoing.write(chunk)
                             if written != item["size"]:
-                                raise ValueError(
-                                    "Archive payload size mismatch"
-                                )
+                                raise ValueError("Archive payload size mismatch")
             if expected != {m.filename for m in members}:
                 raise ValueError("Unexpected archive members")
         checkpoints.verify(sandbox, checkpoint_id)

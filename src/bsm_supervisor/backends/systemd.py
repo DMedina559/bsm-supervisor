@@ -106,8 +106,7 @@ def guard_command(config: Config) -> str:
     executable = _quote_systemd_arg(sys.executable)
     config_dir = _quote_systemd_arg(config.config_dir)
     return (
-        f"{executable} -I -m bsm_supervisor.launchguard "
-        f"--config-dir {config_dir}"
+        f"{executable} -I -m bsm_supervisor.launchguard " f"--config-dir {config_dir}"
     )
 
 

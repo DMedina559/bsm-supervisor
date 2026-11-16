@@ -467,7 +467,5 @@ def remove(config: Config, store: Store, name: str) -> None:
         for suffix in ("service", "timer"):
             (UNIT_DIRECTORY / (unit_name + "." + suffix)).unlink(missing_ok=True)
         for suffix in (".json", ".run", ".previous"):
-            (config.state_dir / "schedules" / (name + suffix)).unlink(
-                missing_ok=True
-            )
+            (config.state_dir / "schedules" / (name + suffix)).unlink(missing_ok=True)
         subprocess.run(["systemctl", "daemon-reload"], check=True, timeout=30)

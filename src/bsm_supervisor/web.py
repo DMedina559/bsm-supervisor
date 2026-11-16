@@ -201,9 +201,7 @@ class Console:
 
     def snapshot(self) -> dict:
         config = (
-            Config.load(self.config_path)
-            if self.config_path.is_file()
-            else self.config
+            Config.load(self.config_path) if self.config_path.is_file() else self.config
         )
         store = Store(config.state_dir)
         try:
@@ -534,10 +532,7 @@ class Console:
                     or path == "/api/recovery/update/cancel"
                 ) and method == "POST":
                     content_type = (
-                        headers.get("content-type", "")
-                        .split(";", 1)[0]
-                        .strip()
-                        .lower()
+                        headers.get("content-type", "").split(";", 1)[0].strip().lower()
                     )
                     if content_type != "application/json":
                         status, body = 415, b'{"error":"Expected application/json"}'

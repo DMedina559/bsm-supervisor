@@ -77,10 +77,7 @@ def deliver(state_dir: Path, store: Store | None = None) -> dict:
         settings = json.loads(private_secret(config_path))
         cursor_path = state_dir / "notification-cursor.json"
         raw_cursor = read_json(cursor_path) if cursor_path.exists() else {"after": 0}
-        if (
-            not isinstance(raw_cursor, dict)
-            or type(raw_cursor.get("after")) is not int
-        ):
+        if not isinstance(raw_cursor, dict) or type(raw_cursor.get("after")) is not int:
             raise ValueError("Invalid notification cursor")
         cursor = {"after": raw_cursor["after"]}
         initial_after = cursor["after"]

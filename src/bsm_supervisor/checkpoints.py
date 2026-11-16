@@ -192,7 +192,9 @@ def create(config: Config, store: Store) -> dict:
         staging.mkdir(mode=0o700)
         try:
             store.note(operation_id, "Capturing checkpoint " + checkpoint_id)
-            database = Path(report["database_path"]) if report["database_path"] else None
+            database = (
+                Path(report["database_path"]) if report["database_path"] else None
+            )
             skip = {
                 config.config_dir.resolve() / name
                 for name in (
@@ -207,7 +209,9 @@ def create(config: Config, store: Store) -> dict:
             if database is not None:
                 skip.update(Path(str(database) + suffix) for suffix in ("-wal", "-shm"))
             if any(any(root.glob(".bsm-restore-*")) for root in authorized):
-                raise ValueError("Recover or clean up previous restore workspaces first")
+                raise ValueError(
+                    "Recover or clean up previous restore workspaces first"
+                )
             estimates = [inventory(root, skip=skip) for root in authorized]
             total = sum(
                 item.get("size", 0) for entries in estimates for item in entries
@@ -266,7 +270,9 @@ def create(config: Config, store: Store) -> dict:
                 "schema_revision": report["schema_revision"],
                 "database_path": report["database_path"],
                 "total_bytes": sum(
-                    item.get("size", 0) for record in records for item in record["entries"]
+                    item.get("size", 0)
+                    for record in records
+                    for item in record["entries"]
                 ),
                 "roots": records,
             }
