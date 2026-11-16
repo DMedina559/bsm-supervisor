@@ -8,8 +8,8 @@ function harness() {
   function el(id){if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);}
   const state={service:{ActiveState:'active'},selection:null,installations:[],checkpoints:[],operations:[],jobs:[],schedules:[]};
   const context={AbortController,DOMException,document:{getElementById:el,querySelectorAll:()=>buttons,createElement:element},setInterval(){},confirm:()=>true,fetch:async(url,options)=>{
-    if(url==='/api/state')return {ok:true,json:async()=>state};
-    return new Promise(resolve=>pending.push(()=>resolve({ok:true,json:async()=>[]})));
+    if(url==='/api/state')return {ok:true,text:async()=>JSON.stringify(state)};
+    return new Promise(resolve=>pending.push(()=>resolve({ok:true,text:async()=>'[]'})));
   }};
   vm.createContext(context);vm.runInContext(fs.readFileSync('src/bsm_supervisor/assets/app.js','utf8'),context);
   return {el,pending,context};

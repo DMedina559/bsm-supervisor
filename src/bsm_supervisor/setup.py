@@ -118,7 +118,12 @@ def setup(
             account = pwd.getpwnam(user)
         for path in (config.data_dir, config.config_dir):
             if not path.exists():
-                path.mkdir(mode=0o750, parents=True)
+                for parent in reversed(path.parents):
+                    if not parent.exists():
+                        parent.mkdir(mode=0o755, exist_ok=True)
+                        os.chmod(parent, 0o755)
+                path.mkdir(mode=0o750)
+                os.chmod(path, 0o750)
                 os.chown(path, account.pw_uid, account.pw_gid)
         if current is None:
             candidates = store.installations()

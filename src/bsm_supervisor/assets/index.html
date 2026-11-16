@@ -50,7 +50,7 @@
      Locked
     </span>
    </span>
-   <button class="action-button" hidden="" id="logout">
+   <button aria-label="Disconnect" class="action-button" hidden="" id="logout" type="button">
     <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
      <rect height="11" rx="2" width="14" x="5" y="10"></rect>
      <path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"></path>
@@ -178,7 +178,7 @@
         Manage your BSM service, versions and recovery from one workspace.
        </p>
       </div>
-      <button class="action-button" id="refresh">
+      <button aria-label="Refresh" class="action-button" id="refresh" type="button">
        <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
         <path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 2M5 16a8 8 0 0 0 13 2"></path>
        </svg>
@@ -410,30 +410,43 @@
         </div>
         <label>
          Operation or workflow ID
-         <input class="form-input" id="recovery" inputmode="numeric"/>
+         <input class="form-input" id="recovery" inputmode="numeric" placeholder="Enter ID or click Inspect in Operations"/>
         </label>
-        <div class="buttons">
-         <button class="action-button" id="operation-inspect" data-recovery-ack>Inspect operation</button>
-         <button class="action-button" data-action="upgrade-resume">
-          Resume upgrade
-         </button>
-         <button class="action-button" data-action="upgrade-cancel">
-          Cancel unstarted upgrade
-         </button>
-         <button class="action-button danger-button" data-action="upgrade-restore">
-          Restore upgrade checkpoint
-         </button>
-         <button class="action-button" data-action="restore-recover">
-          Recover restore
-         </button>
-         <button class="action-button" id="operation-acknowledge" data-recovery-ack>
-          Acknowledge interruption
-         </button>
+        <div class="action-group">
+         <span class="action-group-label">Inspect &amp; acknowledge</span>
+         <div class="buttons">
+          <button class="action-button" data-recovery-ack="" id="operation-inspect" type="button">Inspect operation</button>
+          <button class="action-button" data-recovery-ack="" id="operation-acknowledge" type="button">
+           Acknowledge interruption
+          </button>
+         </div>
         </div>
-        <p>
+        <div class="action-group">
+         <span class="action-group-label">Interrupted upgrade</span>
+         <div class="buttons">
+          <button class="action-button" data-action="upgrade-resume" type="button">
+           Resume upgrade
+          </button>
+          <button class="action-button" data-action="upgrade-cancel" type="button">
+           Cancel unstarted upgrade
+          </button>
+          <button class="action-button danger-button" data-action="upgrade-restore" type="button">
+           Restore upgrade checkpoint
+          </button>
+         </div>
+        </div>
+        <div class="action-group">
+         <span class="action-group-label">Interrupted restore</span>
+         <div class="buttons">
+          <button class="action-button" data-action="restore-recover" type="button">
+           Recover restore
+          </button>
+         </div>
+        </div>
+        <p class="hint">
          Inspect the history and current service state before acknowledging anything. Acknowledgement does not restore data.
         </p>
-        <pre id="recovery-report" aria-live="polite">Inspect an operation to review its service state and events.</pre>
+        <pre aria-live="polite" class="log" id="recovery-report">Inspect an operation to review its service state and events.</pre>
        </article>
       </div>
       <div class="activity-grid">
@@ -561,40 +574,46 @@
            Download &amp; upload
           </h2>
          </div>
-         <label>
-          <input id="encrypt-export" type="checkbox"/>
-          Encrypt download
-         </label>
-         <label>
-          Archive password (16 characters minimum)
-          <input autocomplete="new-password" class="form-input" id="archive-password" type="password"/>
-         </label>
-         <p class="hint">
-          Supply the original password for encrypted uploads. Passwords are used for this operation only. Unencrypted archives contain private BSM data.
-         </p>
-         <button class="action-button" id="backup-export">
-          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
-           <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"></path>
-          </svg>
-          Prepare download
-         </button>
-         <label>
-          Checkpoint archive
-          <input accept=".bsmcheckpoint,.zip" class="form-input" id="archive-file" type="file"/>
-         </label>
-         <button class="action-button" id="backup-upload">
-          <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
-           <path d="M12 16V4m-5 5 5-5 5 5M4 16v5h16v-5"></path>
-          </svg>
-          Upload archive
-         </button>
-         <label>
-          Uploaded archive
-          <select class="form-input" id="upload-transfer"></select>
-         </label>
-         <button class="action-button" id="backup-import">
-          Verify &amp; import
-         </button>
+         <div class="subsection">
+          <p class="subsection-title">Export &amp; download</p>
+          <label>
+           <input id="encrypt-export" type="checkbox"/>
+           Encrypt download
+          </label>
+          <label>
+           Archive password (16 characters minimum)
+           <input autocomplete="new-password" class="form-input" id="archive-password" type="password"/>
+          </label>
+          <p class="hint">
+           Supply the original password for encrypted uploads. Passwords are used for this operation only. Unencrypted archives contain private BSM data.
+          </p>
+          <button class="action-button" id="backup-export" type="button">
+           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+            <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"></path>
+           </svg>
+           Prepare download
+          </button>
+         </div>
+         <div class="subsection">
+          <p class="subsection-title">Upload &amp; import</p>
+          <label>
+           Checkpoint archive
+           <input accept=".bsmcheckpoint,.zip" class="form-input" id="archive-file" type="file"/>
+          </label>
+          <button class="action-button" id="backup-upload" type="button">
+           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+            <path d="M12 16V4m-5 5 5-5 5 5M4 16v5h16v-5"></path>
+           </svg>
+           Upload archive
+          </button>
+          <label>
+           Uploaded archive
+           <select class="form-input" id="upload-transfer"></select>
+          </label>
+          <button class="action-button" id="backup-import" type="button">
+           Verify &amp; import
+          </button>
+         </div>
          <p aria-live="polite" id="transfer-status" role="status"></p>
          <p class="hint">
           Import verifies the archive and adds a checkpoint. It never restores data automatically. Transfers expire after 24 hours.
@@ -654,10 +673,19 @@
            Create or edit schedule
           </h2>
          </div>
+         <div class="schedule-toolbar">
+          <select aria-label="Calendar preset" class="form-input" id="schedule-preset">
+           <option value="">Calendar preset…</option>
+           <option value="*-*-* 03:00:00 UTC|03:00|04:00|1,2,3,4,5,6,7">Daily 03:00 UTC</option>
+           <option value="*-*-* 00/6:00:00 UTC|00:00|23:59|1,2,3,4,5,6,7">Every 6 hours</option>
+           <option value="Sun *-*-* 03:00:00 UTC|03:00|04:00|7">Weekly Sunday 03:00 UTC</option>
+          </select>
+          <button class="action-button" id="schedule-reset" type="button">New schedule</button>
+         </div>
          <form id="schedule-form">
           <label>
            Name
-           <input class="form-input" id="schedule-name" pattern="[a-z][a-z0-9-]{0,39}" placeholder="nightly-backup" required=""/>
+           <input class="form-input" id="schedule-name" pattern="[a-z][a-z0-9-]{0,39}" placeholder="nightly-backup" required="" title="Lowercase letters, digits, and hyphens; must start with a letter"/>
           </label>
           <label>
            Action
@@ -702,8 +730,17 @@
           <label>
            ISO weekdays (1 = Monday, 7 = Sunday)
            <input class="form-input" id="schedule-days" required="" value="1,2,3,4,5,6,7"/>
+           <span aria-label="Quick weekday toggles" class="day-pills" id="schedule-day-pills">
+            <label class="day-chip"><input checked="" data-day="1" type="checkbox"/><span>Mon</span></label>
+            <label class="day-chip"><input checked="" data-day="2" type="checkbox"/><span>Tue</span></label>
+            <label class="day-chip"><input checked="" data-day="3" type="checkbox"/><span>Wed</span></label>
+            <label class="day-chip"><input checked="" data-day="4" type="checkbox"/><span>Thu</span></label>
+            <label class="day-chip"><input checked="" data-day="5" type="checkbox"/><span>Fri</span></label>
+            <label class="day-chip"><input checked="" data-day="6" type="checkbox"/><span>Sat</span></label>
+            <label class="day-chip"><input checked="" data-day="7" type="checkbox"/><span>Sun</span></label>
+           </span>
           </label>
-          <label>
+          <label data-schedule-for="upgrade">
            Release channel
            <select class="form-input" id="schedule-selector">
             <option>
@@ -714,40 +751,40 @@
             </option>
            </select>
           </label>
-          <label>
+          <label data-schedule-for="prune">
            Checkpoints to keep
            <input class="form-input" id="schedule-keep" min="1" type="number" value="3"/>
           </label>
-          <details>
+          <details data-schedule-for="export journal-prune" id="schedule-advanced">
            <summary>
             Export and journal retention options
            </summary>
-           <label>
+           <label data-schedule-for="export">
             Export directory
             <input class="form-input" id="schedule-destination" placeholder="/mnt/backups"/>
            </label>
-           <label>
+           <label data-schedule-for="export">
             Required mount
             <input class="form-input" id="schedule-mount" placeholder="/mnt/backups"/>
            </label>
-           <label>
+           <label data-schedule-for="export">
             Existing private passphrase file
             <input class="form-input" id="schedule-passphrase" placeholder="/etc/bsm-supervisor/backup-password"/>
            </label>
-           <label>
+           <label data-schedule-for="journal-prune">
             Job log days
             <input class="form-input" id="schedule-keep-days" min="1" type="number" value="30"/>
            </label>
-           <label>
+           <label data-schedule-for="journal-prune">
             Recent jobs
             <input class="form-input" id="schedule-keep-jobs" min="1" type="number" value="100"/>
            </label>
           </details>
-          <label>
+          <label data-schedule-for="checkpoint upgrade prune">
            <input id="schedule-maintenance" type="checkbox"/>
            Allow maintenance downtime/deletion within this window
           </label>
-          <label>
+          <label data-schedule-for="upgrade">
            <input id="schedule-migrations" type="checkbox"/>
            Accept database migrations for scheduled upgrades
           </label>
@@ -959,7 +996,7 @@
          </h2>
         </div>
         <p id="supervisor-version"></p>
-        <details><summary>Deployment and capabilities</summary><pre id="deployment-info"></pre></details>
+        <details><summary>Deployment and capabilities</summary><pre class="log" id="deployment-info"></pre></details>
         <button class="action-button" data-admin-action="supervisor-check">
          Check releases
         </button>
@@ -987,7 +1024,7 @@
           Restart console
          </button>
         </div>
-        <pre id="update-report" aria-live="polite"></pre>
+        <pre aria-live="polite" class="log" id="update-report"></pre>
         <p class="hint">
          Finish jobs before restarting the console. After updating, restart the console to load its new code, then reload and reconnect. Custom service units require a host restart command.
         </p>
@@ -1038,14 +1075,20 @@
      </div>
      <article class="panel output-panel">
       <div class="panel-heading section-heading">
-       <span class="panel-icon">
-        <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
-         <path d="M8 3h10a2 2 0 0 1 2 2v16H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2ZM8 7h8M8 11h8M8 15h5"></path>
-        </svg>
-       </span>
-       <h2>
-        Action output
-       </h2>
+       <div class="output-heading-left">
+        <span class="panel-icon">
+         <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
+          <path d="M8 3h10a2 2 0 0 1 2 2v16H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2ZM8 7h8M8 11h8M8 15h5"></path>
+         </svg>
+        </span>
+        <h2>
+         Action output
+        </h2>
+       </div>
+       <div class="output-actions">
+        <button class="action-button" id="output-copy" type="button">Copy</button>
+        <button class="action-button" id="output-clear" type="button">Clear</button>
+       </div>
       </div>
       <p aria-live="polite" id="admin-progress" role="status">
        Choose an action to see its result here. Operation history remains under Overview.
@@ -1086,7 +1129,7 @@
      </dialog>
     </div>
    </section>
-   <p id="error" role="alert" tabindex="-1"></p>
+   <p id="error" role="alert" tabindex="-1" title="Click to dismiss"></p>
    <footer>
     AGPLv3 or later ·
     <a href="https://github.com/DMedina559/bsm-supervisor">

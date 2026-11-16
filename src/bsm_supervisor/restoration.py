@@ -193,7 +193,12 @@ def restore(config: Config, store: Store, checkpoint_id: str) -> dict:
                     if current == workspace or current in locks:
                         continue
                     if any(current in lock.parents for lock in locks):
-                        if not current.is_dir() or not replacement.is_dir():
+                        if (
+                            current.is_symlink()
+                            or not current.is_dir()
+                            or replacement.is_symlink()
+                            or not replacement.is_dir()
+                        ):
                             raise ValueError(
                                 "Checkpoint must preserve runtime-lock ancestors"
                             )

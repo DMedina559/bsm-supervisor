@@ -46,8 +46,17 @@ def prune(
         for job, path in jobs[keep_jobs:]:
             if job.get("state") not in ("succeeded", "failed", "acknowledged"):
                 continue
-            if datetime.fromisoformat(job["created_at"]) >= cutoff:
-                continue
+            raw_created = job.get("created_at")
+            if isinstance(raw_created, str):
+                try:
+                    created = datetime.fromisoformat(raw_created)
+                except ValueError:
+                    created = None
+                if created is not None:
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=timezone.utc)
+                    if created >= cutoff:
+                        continue
             lease = os.open(
                 path.with_suffix(".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600
             )

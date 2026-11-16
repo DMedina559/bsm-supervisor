@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import stat
 from pathlib import Path
 
 
@@ -33,19 +34,22 @@ def permit_path(config_dir: Path) -> Path:
 
 def allowed(config_dir: Path) -> bool:
     """Reject recovery markers unless a matching live upgrade authorizes startup."""
-    if (config_dir / "supervisor-recovery.required").exists():
+    recovery = config_dir / "supervisor-recovery.required"
+    if recovery.exists() or recovery.is_symlink():
         return False
     marker = config_dir / "supervisor-upgrade.required"
-    if not marker.exists():
+    if not marker.exists() and not marker.is_symlink():
         return True
     try:
-        if marker.is_symlink() or marker.stat().st_size > 4096:
+        marker_info = marker.lstat()
+        if not stat.S_ISREG(marker_info.st_mode) or marker_info.st_size > 4096:
             return False
         workflow = json.loads(marker.read_text())
         if not isinstance(workflow.get("workflow_key"), str):
             return False
         path = permit_path(config_dir)
-        if path.is_symlink() or path.stat().st_size > 4096:
+        permit_info = path.lstat()
+        if not stat.S_ISREG(permit_info.st_mode) or permit_info.st_size > 4096:
             return False
         permit = json.loads(path.read_text())
         return (

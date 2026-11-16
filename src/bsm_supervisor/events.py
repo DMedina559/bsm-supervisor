@@ -1,12 +1,18 @@
 """Read durable operation progress and deliver explicitly configured notifications."""
 
+from __future__ import annotations
+
 import json
 import sqlite3
 import urllib.error
 import urllib.request
 from contextlib import closing
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
+
+if TYPE_CHECKING:
+    from .store import Store
 
 from .checkpoint_files import read_json, write_json
 from .transfer import private_secret
@@ -59,7 +65,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def deliver(state_dir: Path, store=None) -> dict:
+def deliver(state_dir: Path, store: Store | None = None) -> dict:
     """Deliver ordered completion events; retry failed events on the next call."""
     from .store import Store
 
@@ -70,33 +76,40 @@ def deliver(state_dir: Path, store=None) -> dict:
             return {"enabled": False, "delivered": 0}
         settings = json.loads(private_secret(config_path))
         cursor_path = state_dir / "notification-cursor.json"
-        cursor = read_json(cursor_path) if cursor_path.exists() else {"after": 0}
+        raw_cursor = read_json(cursor_path) if cursor_path.exists() else {"after": 0}
+        if not isinstance(raw_cursor, dict) or type(raw_cursor.get("after")) is not int:
+            raise ValueError("Invalid notification cursor")
+        cursor = {"after": raw_cursor["after"]}
+        initial_after = cursor["after"]
         delivered = 0
-        for event in read(state_dir, cursor["after"], 100):
-            if event["state"] in ("succeeded", "failed"):
-                # Error text, configuration, tokens and paths are never sent.
-                payload = {
-                    key: event[key]
-                    for key in ("id", "operation_id", "state", "created_at")
-                }
-                request = urllib.request.Request(
-                    settings["url"],
-                    data=json.dumps(payload).encode(),
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                opener = urllib.request.build_opener(
-                    urllib.request.ProxyHandler({}), NoRedirect()
-                )
-                try:
-                    with opener.open(request, timeout=5) as response:
-                        if not 200 <= response.status < 300:
-                            raise OSError("Webhook rejected delivery")
-                except (OSError, urllib.error.URLError) as exc:
-                    raise DeliveryError(
-                        "Notification delivery failed; cursor retained for retry"
-                    ) from exc
-                delivered += 1
-            cursor["after"] = event["id"]
-            write_json(cursor_path, cursor)
+        try:
+            for event in read(state_dir, cursor["after"], 100):
+                if event["state"] in ("succeeded", "failed"):
+                    # Error text, configuration, tokens and paths are never sent.
+                    payload = {
+                        key: event[key]
+                        for key in ("id", "operation_id", "state", "created_at")
+                    }
+                    request = urllib.request.Request(
+                        settings["url"],
+                        data=json.dumps(payload).encode(),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    opener = urllib.request.build_opener(
+                        urllib.request.ProxyHandler({}), NoRedirect()
+                    )
+                    try:
+                        with opener.open(request, timeout=5) as response:
+                            if not 200 <= response.status < 300:
+                                raise OSError("Webhook rejected delivery")
+                    except (OSError, urllib.error.URLError) as exc:
+                        raise DeliveryError(
+                            "Notification delivery failed; cursor retained for retry"
+                        ) from exc
+                    delivered += 1
+                cursor["after"] = event["id"]
+        finally:
+            if cursor["after"] != initial_after:
+                write_json(cursor_path, cursor)
         return {"enabled": True, "delivered": delivered, "after": cursor["after"]}

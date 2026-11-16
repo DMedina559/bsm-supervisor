@@ -22,7 +22,11 @@ const el = id => document.getElementById(id);
 async function request(path, value) {
   const currentSession=session;
   const response = await fetch('/api/' + path, {method: value ? 'POST' : 'GET', headers: {Authorization: 'Bearer ' + token, ...(value ? {'Content-Type':'application/json'} : {})}, ...(value ? {body:JSON.stringify(value)} : {}), cache:'no-store', credentials:'omit', signal:controller.signal});
-  const result=await response.json();
+  let result={};
+  try {
+    const raw=await response.text();
+    if(raw) result=JSON.parse(raw);
+  } catch {}
   if(currentSession!==session) throw new DOMException('Session ended','AbortError');
   if (!response.ok) {
     if(response.status===401) {lockConsole(); el('error').textContent='Console token rejected. Reconnect to continue.'; throw new DOMException('Authentication ended','AbortError');}
@@ -32,6 +36,14 @@ async function request(path, value) {
 }
 function options(id, items, label) {
   const select = el(id), previous = select.value;
+  if (!items.length) {
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = 'None available';
+    empty.disabled = true;
+    select.replaceChildren(empty);
+    return;
+  }
   select.replaceChildren(...items.map(item => {const option = document.createElement('option'); option.value = item.id; option.textContent = label(item); return option;}));
   if (items.some(item => item.id === previous)) select.value = previous;
 }
@@ -51,7 +63,7 @@ function renderOperationRows(items, container=el('operations')) {
     heading.append(id,label,badge);row.append(heading);
     if(item.started_at){const time=document.createElement('time');time.className='operation-time';time.dateTime=item.started_at;time.textContent=new Date(item.started_at).toLocaleString();row.append(time);}
     if(item.detail){const detail=document.createElement('p');detail.className='operation-detail';detail.textContent=item.detail;row.append(detail);}
-    const inspect=document.createElement('button');inspect.className='action-button';inspect.textContent='Inspect #'+item.id;inspect.setAttribute('data-recovery-ack','');inspect.onclick=()=>{el('recovery').value=String(item.id);inspectOperation();};row.append(inspect);
+    const inspect=document.createElement('button');inspect.type='button';inspect.className='action-button';inspect.textContent='Inspect #'+item.id;inspect.setAttribute('data-recovery-ack','');inspect.onclick=()=>{el('recovery').value=String(item.id);inspectOperation();};row.append(inspect);
     return row;
   }));
 }
@@ -86,15 +98,18 @@ async function refresh() {
     options('installation',state.installations,item=>item.id+' · '+item.version);
     options('checkpoint',state.checkpoints,item=>item.id+(item.invalid?' · invalid':''));
     renderOperationRows(state.operations);renderWorkspace(state);
-    if(olderBefore===null && state.operations.length)olderBefore=state.operations[state.operations.length-1].id;
+    if(olderBefore===null) {
+      if(state.operations.length===100) olderBefore=state.operations[state.operations.length-1].id;
+      el('history-more').hidden=olderBefore===null;
+    }
     const pendingOperation=state.operations.find(item=>['running','interrupted'].includes(item.state));
     el('notice').textContent=pendingOperation ? 'Operation #'+pendingOperation.id+' needs inspection. Check its details and current service state before acknowledging in Recovery.' : '';
-    const opened=new Set([...el('jobs').querySelectorAll('details[open]')].map(row=>row.dataset.id));
+    const previousLogs=new Map([...el('jobs').querySelectorAll('details[open]')].map(row=>[row.dataset.id,row.querySelector('pre')?.textContent||'']));
     el('jobs').replaceChildren(...state.jobs.map(item=>{
       const row=document.createElement('details'), summary=document.createElement('summary'), output=document.createElement('pre');
-      row.className='row'; if(['running','interrupted'].includes(item.state) && item.execution_state!=='inactive') row.dataset.running='true'; row.dataset.id=item.id; row.open=opened.has(item.id); summary.textContent=actionLabel(item.action)+' · '+item.state+' · '+item.id.slice(0,8);summary.title=item.id;
+      row.className='row'; if(['running','interrupted'].includes(item.state) && item.execution_state!=='inactive') row.dataset.running='true'; row.dataset.id=item.id; row.open=previousLogs.has(item.id); if(row.open) output.textContent=previousLogs.get(item.id)||''; summary.textContent=actionLabel(item.action)+' · '+item.state+' · '+item.id.slice(0,8);summary.title=item.id;
       const identity=document.createElement('p');identity.className='job-identity';identity.textContent='Job '+item.id;
-      row.append(summary,identity,output); if(['running','interrupted'].includes(item.state)){const acknowledge=document.createElement('button');acknowledge.className='action-button';acknowledge.textContent='Acknowledge after inspection';acknowledge.setAttribute('data-recovery-ack','');acknowledge.onclick=async()=>{if(!confirm('Confirm service and operation inspection? This only acknowledges console bookkeeping.'))return;try{await request('jobs/'+item.id+'/acknowledge',{confirmed:true});await refresh();}catch(error){el('error').textContent=error.message;}};row.append(acknowledge);} row.addEventListener('toggle',async()=>{if(row.open) {try {output.textContent=(await request('jobs/'+item.id)).output;} catch(error) {output.textContent=error.message;}}}); return row;
+      row.append(summary,identity,output); if(['running','interrupted'].includes(item.state)){const acknowledge=document.createElement('button');acknowledge.type='button';acknowledge.className='action-button';acknowledge.textContent='Acknowledge after inspection';acknowledge.setAttribute('data-recovery-ack','');acknowledge.onclick=async()=>{if(!confirm('Confirm service and operation inspection? This only acknowledges console bookkeeping.'))return;try{await request('jobs/'+item.id+'/acknowledge',{confirmed:true});await refresh();}catch(error){el('error').textContent=error.message;}};row.append(acknowledge);} row.addEventListener('toggle',async()=>{if(row.open) {try {output.textContent=(await request('jobs/'+item.id)).output;} catch(error) {output.textContent=error.message;}}}); return row;
     }));
     if(typeof renderAdmin==='function')renderAdmin(state);
     el('schedules').textContent=state.schedules.length ? JSON.stringify(state.schedules,null,2) : 'No schedules configured.';
@@ -109,7 +124,8 @@ async function refresh() {
     el('console-connection').textContent='Connected';el('connection-chip').dataset.state='connected';
   } catch(error) {if(error.name!=='AbortError' && currentSession===session) {el('error').textContent=error.message;if(token){el('console-connection').textContent='Unavailable';el('connection-chip').dataset.state='unavailable';}}} finally {if(currentSession===session) {busy=false;updateButtons();}}
 }
-el('login').addEventListener('submit', event=>{event.preventDefault(); const credential=el('token').value.trim(); lockConsole(); token=credential; el('token').value=''; refresh();});
+el('error').onclick=()=>{el('error').textContent='';};
+el('login').addEventListener('submit', event=>{event.preventDefault(); const credential=el('token').value.trim(); if(!credential){el('error').textContent='Enter a console token to connect.'; return;} lockConsole(); token=credential; el('token').value=''; refresh();});
 el('logout').onclick=lockConsole;
 el('refresh').onclick=refresh;
 document.querySelectorAll('[data-action]').forEach(button=>button.onclick=async()=>{
@@ -123,10 +139,11 @@ document.querySelectorAll('[data-action]').forEach(button=>button.onclick=async(
   else if(['acknowledge','upgrade-resume','upgrade-cancel','upgrade-restore','restore-recover'].includes(action)) value.target=el('recovery').value;
   if(!['start','install','checkpoint-verify','restore-plan'].includes(action)) {
     if(!confirm('Run '+action+'? This may interrupt BSM. Offline actions also require confirmation that BSM is not running outside its managed service.')) return;
+    if(currentSession!==session) return;
     value.confirmed=true;
   }
-  if(action==='upgrade') {if(!confirm('Allow BSM database migrations? Recovery may require restoring a checkpoint and discarding newer data.')) return; value.accept_migrations=true;}
-  if(['checkpoint-restore','upgrade-restore'].includes(action)) {if(!confirm('Replace saved data and discard changes made since this checkpoint?')) return; value.restore_data=true;}
+  if(action==='upgrade') {if(!confirm('Allow BSM database migrations? Recovery may require restoring a checkpoint and discarding newer data.')) return; if(currentSession!==session) return; value.accept_migrations=true;}
+  if(['checkpoint-restore','upgrade-restore'].includes(action)) {if(!confirm('Replace saved data and discard changes made since this checkpoint?')) return; if(currentSession!==session) return; value.restore_data=true;}
   submitting=true; updateButtons();
   try {const job=await request('actions',value); if(currentSession!==session) return; el('notice').textContent='Queued '+job.action+' · '+job.id; await refresh();} catch(error) {if(error.name!=='AbortError' && currentSession===session) el('error').textContent=error.message;} finally {if(currentSession===session) {submitting=false;updateButtons();}}
 });

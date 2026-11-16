@@ -25,9 +25,11 @@ def overrides() -> dict[str, str]:
                 raise ValueError("Container init environment exceeds size limit")
             for entry in raw.split(b"\0"):
                 name, separator, value = entry.partition(b"=")
-                if separator and name.decode("utf-8", errors="replace") in NAMES:
-                    values[name.decode()] = value.decode("utf-8")
-    except (FileNotFoundError, PermissionError):
+                if separator:
+                    key = name.decode("utf-8", errors="replace")
+                    if key in NAMES:
+                        values[key] = value.decode("utf-8", errors="replace")
+    except (FileNotFoundError, PermissionError, IsADirectoryError, UnicodeDecodeError):
         pass
     values.update({name: os.environ[name] for name in NAMES if name in os.environ})
     return values
