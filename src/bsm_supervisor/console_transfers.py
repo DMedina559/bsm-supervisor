@@ -68,7 +68,7 @@ def listing(config: Config) -> list[dict]:
         (
             read_json(path)
             for path in folder(config).glob("*.json")
-            if re.fullmatch(r"[0-9a-f]{32}.json", path.name)
+            if re.fullmatch(r"[0-9a-f]{32}\.json", path.name)
         ),
         key=lambda item: item["created_at"],
         reverse=True,

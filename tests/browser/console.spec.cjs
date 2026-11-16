@@ -64,6 +64,8 @@ test('administration sections, settings and schedule forms are responsive',async
  await login(page);
  for(const name of ['backups','automation','settings','system']){
   await page.locator('[data-section="'+name+'"]').click();await expect(page.locator('#page-'+name)).toBeVisible();
+  await expect(page.locator('[data-section][aria-current="page"]')).toHaveCount(1);
+  await expect(page.locator('[data-section="'+name+'"]')).toHaveAttribute('aria-current','page');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
   await page.screenshot({path:test.info().outputPath(name+'.png'),fullPage:true});
  }
@@ -83,4 +85,57 @@ test('browser archive upload and authenticated download use opaque transfer IDs'
  await page.locator('#backup-upload').click();await expect(page.locator('#transfer-status')).toContainText('Upload complete');
  await page.locator('#archive-password').fill('private password value');await page.locator('[data-section="system"]').click();await page.locator('#github-token').fill('github_secret');
  await page.locator('#logout').click();await expect(page.locator('#archive-password')).toHaveValue('');await expect(page.locator('#github-token')).toHaveValue('');
+});
+
+test('lifecycle coupling can be configured separately from automatic startup',async({page})=>{
+ await login(page);
+ await page.locator('[data-section="settings"]').click();
+ await expect(page.locator('#setting-stop_bsm_with_supervisor')).not.toBeChecked();
+ await expect(page.locator('#setting-web_auto_start')).toBeChecked();
+ await page.locator('#setting-stop_bsm_with_supervisor').check();
+ page.on('dialog',dialog=>dialog.accept());
+ await page.route('**/api/actions',route=>route.fulfill({status:202,json:{id:'f'.repeat(32),action:'settings-save'}}));
+ const payload=page.waitForRequest(request=>request.url().endsWith('/api/actions'));
+ await page.locator('#settings-form button').click();
+ expect((await payload).postDataJSON()).toMatchObject({action:'settings-save',settings:{stop_bsm_with_supervisor:true},confirmed:true});
+ await expect(page.locator('#setting-web_auto_start')).toBeChecked();
+});
+
+test('workspace summaries and operation details reflect authenticated state',async({page})=>{
+ await page.route('**/api/state',route=>route.fulfill({json:{
+  service:{ActiveState:'active',SubState:'running',MainPID:'382',Result:'success'},
+  selection:{id:'release-4.0.0',version:'4.0.0'},installations:[],
+  checkpoints:[{id:'a'.repeat(32),total_bytes:1024}],
+  operations:[{id:8,action:'service:start',state:'running',detail:'Inspect the service before acknowledging.',started_at:'2026-10-17T12:00:00Z'}],jobs:[],schedules:[],supervisor:{version:'0.1.1.dev8'}
+ }}));
+ await login(page);
+ await expect(page.locator('#console-connection')).toHaveText('Connected');
+ await expect(page.locator('#summary-service')).toHaveText('Running');
+ await expect(page.locator('#summary-version')).toHaveText('4.0.0');
+ await expect(page.locator('#summary-backups')).toHaveText('1');
+ await expect(page.locator('#summary-attention')).toHaveText('1 to inspect');
+ await expect(page.locator('#sidebar-installation')).toHaveText('BSM 4.0.0');
+ const operation=page.locator('#operations details');
+ await expect(operation.locator('summary')).toContainText('Start BSM');
+ await expect(operation.locator('summary')).toContainText('Needs inspection');
+ await operation.locator('summary').click();await expect(operation).toContainText('Inspect the service before acknowledging.');
+ await page.locator('#refresh').click();await expect(operation).toHaveAttribute('open','');
+ await page.locator('[data-section="backups"]').click();
+ await expect(page.locator('#page-title')).toBeFocused();
+ await expect(page.locator('#breadcrumb-page')).toHaveText('Backups & restore');
+ await page.locator('#logout').click();await expect(page.locator('#console-connection')).toHaveText('Locked');
+ await expect(page.locator('#sidebar-installation')).toBeEmpty();
+});
+
+test('recovery inspection works with interrupted jobs and submits inspected digest',async({page})=>{
+ const digest='a'.repeat(64);
+ await page.route('**/api/state',route=>route.fulfill({json:{service:{ActiveState:'failed',MainPID:'0'},selection:null,installations:[],checkpoints:[],operations:[{id:27,action:'service:start',state:'running',detail:'Start failed'}],jobs:[{id:'b'.repeat(32),action:'start',state:'interrupted',execution_state:'inactive'}],schedules:[]}}));
+ await page.route('**/api/recovery/operations/27',route=>route.fulfill({json:{operation:{id:27,state:'running'},service:{ActiveState:'failed',MainPID:'0'},events:[],digest,effect:'Clear bookkeeping only.'}}));
+ let acknowledged=false;
+ await page.route('**/api/recovery/operations/27/acknowledge',route=>{expect(route.request().postDataJSON()).toEqual({confirmed:true,digest});acknowledged=true;return route.fulfill({json:{acknowledged:true}});});
+ await login(page);await page.locator('#operations summary').click();await page.locator('#operations button').click();
+ await expect(page.locator('#recovery-report')).toContainText('MainPID');
+ page.on('dialog',dialog=>dialog.accept());await page.locator('#operation-acknowledge').click();
+ await expect.poll(()=>acknowledged).toBeTruthy();
+ await expect(page.locator('#recovery-report')).toContainText('No data restored');
 });

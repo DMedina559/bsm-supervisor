@@ -1,7 +1,8 @@
 # Supervisor releases
 
-Development builds report `0.1.0.dev0` plus their recorded source commit. Release
-packages derive their version from a normalized Python version tag, for example
+Development builds continue from the latest reachable release tag and report
+their recorded source commit separately. Release packages derive their version
+from a normalized Python version tag, for example
 `v0.1.0b1` or `v0.1.0`. There is no second package version to edit for a release.
 
 The release workflow runs tests on Python 3.11 and 3.14, runs formatting/type
@@ -52,3 +53,23 @@ experimental notice. Publication stops if the tag moves during the build.
 Rerunning an older failed workflow uses its original workflow definition. Use
 **Run workflow** from the updated `main` branch when repairing a failure in the
 publication workflow itself.
+
+## Package versions
+
+The supervisor derives its package version from Git tags with `setuptools-scm`,
+using the same scheme as BSM. An exact `v0.1.0` tag builds as `0.1.0`; one commit
+later builds as `0.1.1.dev1`. After `v0.2.0b1`, the next commit builds as
+`0.2.0b2.dev1`. Development versions omit the local Git suffix; the `version`
+command reports the installed source revision separately.
+
+Build from a Git checkout with full tag history, a GitHub source archive containing
+expanded version metadata, or a published source distribution. A source copy
+without this metadata cannot determine a reliable version. CI fetches full
+history. GitHub archive metadata is expanded through `.gitattributes` so branch
+installs in the LXC retain their development version.
+
+Release builds and pinned release installers use the validated tag version.
+The installer retains compatibility with release archives that predate SCM
+versioning. No manual edit of the Python version constant is needed for a new
+release. Installing or updating the package is required to update the installed
+version shown by the CLI and web console.

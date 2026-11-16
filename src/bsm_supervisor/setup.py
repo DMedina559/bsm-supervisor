@@ -14,7 +14,7 @@ from .diagnostics import urls
 from .install import install
 from .integration import require_managed
 from .releases import discover, select
-from .service import ServiceError, SystemdService
+from .service import ServiceError, service_backend
 from .store import Store
 from .unit_refresh import refresh
 
@@ -41,7 +41,7 @@ def setup(
         with store.mutation("setup:preflight"):
             pass
         current = selection(config, store)
-        service = SystemdService(config)
+        service = service_backend(config)
         try:
             state = service.status()
         except ServiceError as error:
@@ -118,7 +118,12 @@ def setup(
             account = pwd.getpwnam(user)
         for path in (config.data_dir, config.config_dir):
             if not path.exists():
-                path.mkdir(mode=0o750, parents=True)
+                for parent in reversed(path.parents):
+                    if not parent.exists():
+                        parent.mkdir(mode=0o755, exist_ok=True)
+                        os.chmod(parent, 0o755)
+                path.mkdir(mode=0o750)
+                os.chmod(path, 0o750)
                 os.chown(path, account.pw_uid, account.pw_gid)
         if current is None:
             candidates = store.installations()

@@ -6,6 +6,7 @@ import sys
 import uuid
 from pathlib import Path
 
+from .checkpoint_files import sync_directory
 from .config import Config
 from .integration import offline_guard
 from .service import guard_command, managed_command, unset_environment
@@ -30,10 +31,16 @@ def service_unit(config: Config, user: str) -> str:
             )
     command = managed_command(config)
     guard = guard_command(config)
+    lifecycle = (
+        "BindsTo=bsm-supervisor-console.service\n"
+        "After=bsm-supervisor-console.service\n"
+        if config.stop_bsm_with_supervisor
+        else ""
+    )
     return f"""[Unit]
 Description=Bedrock Server Manager (BSM Supervisor)
 After=network.target
-StartLimitIntervalSec=300
+{lifecycle}StartLimitIntervalSec=300
 StartLimitBurst=3
 
 [Service]
@@ -81,11 +88,7 @@ def activate(config: Config, store: Store, installation_id: str) -> None:
         try:
             temporary.symlink_to(installation_id, target_is_directory=True)
             os.replace(temporary, current)
-            descriptor = os.open(current.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+            sync_directory(current.parent)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -97,7 +100,12 @@ def selection(config: Config, store: Store) -> dict | None:
         if current.exists():
             raise ValueError("The current path is not a selection symlink")
         return None
-    resolved = current.resolve(strict=True)
+    try:
+        resolved = current.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ValueError(
+            "The current symlink points to a missing installation"
+        ) from exc
     for item in store.installations():
         if item["path"] == str(resolved):
             return item

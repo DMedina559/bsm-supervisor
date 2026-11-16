@@ -42,7 +42,7 @@ class SetupTests(unittest.TestCase):
         error = io.StringIO()
         with (
             patch("bsm_supervisor.config.overrides", return_value={}),
-            patch("bsm_supervisor.operations.SystemdService") as service,
+            patch("bsm_supervisor.operations.service_backend") as service,
             contextlib.redirect_stderr(error),
         ):
             self.assertEqual(main(["--config", str(self.config_file), "start"]), 1)
@@ -57,7 +57,7 @@ class SetupTests(unittest.TestCase):
                 "bsm_supervisor.operations.selection", return_value={"version": "4.0"}
             ),
             patch("bsm_supervisor.operations.require_managed"),
-            patch("bsm_supervisor.operations.SystemdService") as service,
+            patch("bsm_supervisor.operations.service_backend") as service,
             contextlib.redirect_stderr(io.StringIO()) as error,
         ):
             service.return_value.status.return_value = {

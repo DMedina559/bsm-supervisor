@@ -175,7 +175,7 @@ class BindTests(unittest.TestCase):
         with (
             patch("bsm_supervisor.config.overrides", return_value={}),
             patch(
-                "bsm_supervisor.cli.SystemdService.status",
+                "bsm_supervisor.service.SystemdService.status",
                 return_value={"ActiveState": "active", "MainPID": "123", "Job": ""},
             ),
             contextlib.redirect_stderr(io.StringIO()),
@@ -195,7 +195,7 @@ class BindTests(unittest.TestCase):
         with (
             patch("bsm_supervisor.config.overrides", return_value={}),
             patch(
-                "bsm_supervisor.cli.SystemdService.status",
+                "bsm_supervisor.service.SystemdService.status",
                 return_value={"ActiveState": "inactive", "MainPID": "0", "Job": ""},
             ),
             contextlib.redirect_stdout(io.StringIO()),
@@ -222,12 +222,12 @@ class BindTests(unittest.TestCase):
 
         with (
             patch("bsm_supervisor.config.overrides", return_value={}),
-            patch("bsm_supervisor.cli.SystemdService.status", return_value={}),
+            patch("bsm_supervisor.service.SystemdService.status", return_value={}),
             patch(
                 "bsm_supervisor.operations.require_managed",
                 side_effect=ValueError("environment drift"),
             ),
-            patch("bsm_supervisor.cli.SystemdService.control") as control,
+            patch("bsm_supervisor.service.SystemdService.control") as control,
             contextlib.redirect_stderr(io.StringIO()),
         ):
             self.assertEqual(main(["--config", str(self.path), "start"]), 1)

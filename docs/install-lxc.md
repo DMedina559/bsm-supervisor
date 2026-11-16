@@ -1,6 +1,7 @@
-# Install from an LXC console
+# Install on Linux or inside an LXC
 
-Run inside a Debian 12+ or Ubuntu 24.04+ systemd container as root. Python 3.11+
+Run on Debian 12+ or Ubuntu 24.04+ with systemd, as root. This includes
+unprivileged LXC containers, Linux VMs and bare-metal systems. Python 3.11+
 is required. The installer installs distribution packages, creates a permanent
 supervisor virtual environment, and provides launchers in `/usr/local/bin` and
 `/usr/bin`. The latter supports `pct enter` shells whose PATH omits local binaries.
@@ -133,3 +134,67 @@ bash scripts/install-lxc.sh --source-dir "$PWD" --install-bsm-unit
 
 See [BSM listener and Proxmox environment](listener-environment.md) for LAN binding,
 native environment settings, and updating an existing managed unit.
+
+## BSM installation access
+
+BSM runs as its service account, so installed Python packages need read and directory
+traversal access. The supervisor keeps package environments root-owned and does not
+grant the service account write access. Installation child processes use a code
+umask of `022`, independently of the console's private `0077` umask. Credentials,
+operation logs and BSM data retain their private permissions.
+
+For an environment installed by an older supervisor, inspect the selected Python
+path and test access as the service account:
+
+```sh
+namei -l /opt/bsm/installations/current/bin/python
+runuser -u bsm -- /opt/bsm/installations/current/bin/python -I \
+  -c 'from importlib.metadata import version; print(version("bedrock-server-manager"))'
+```
+
+If package directories or files are inaccessible, repair permissions only within
+the verified installation directory. Do not apply recursive permission changes to
+BSM data, configuration, supervisor state, or an external interpreter target. A
+`noexec` mount or a private ancestor directory requires separate correction. Updated
+supervisors also normalize verified PyPI environments when reusing an installation.
+
+## Install from a complete source checkout
+
+The generic Linux entry point uses the same installation engine as the LXC
+bootstrap. From the checkout root, run:
+
+```bash
+sudo bash scripts/install.sh --source-dir "$PWD" --ref dev
+```
+
+Use a full Git checkout with tags or a source archive with expanded version
+metadata. The installer requires APT, Python 3.11+ and a running systemd instance;
+it does not create or provision a VM or container. It preserves existing BSM data
+and service state. Use `--install-bsm-unit` only for a new installation with no
+existing managed unit, or complete setup with the CLI afterward.
+
+For a single downloaded bootstrap file, continue using `install-lxc.sh`. It
+resolves a pinned source bundle before loading the shared systemd installation
+module. Published releases with the older standalone installer remain supported.
+The generic `install.sh` entry point requires its sibling scripts from the source
+bundle and is not a standalone download.
+
+## Preflight checks and installation logs
+
+Run the installer with `--check` for read-only Linux preflight checks. This mode
+checks the running systemd requirement, Python compatibility when installed,
+configuration path and non-overlapping storage roots, and minimum free space.
+It does not install packages, acquire sources, or change services. Network access
+and package installation are verified during the real installation.
+
+```bash
+bash scripts/install.sh --check
+```
+
+Real installations write mode-0600 logs under the private
+`/var/log/bsm-supervisor/` directory. Named stages and the final result identify
+where an installation failed. The completion summary reports the managed service
+state, configured BSM URLs and next commands without claiming application
+readiness. Deployment metadata records whether installation used Linux directly
+or the Proxmox host provisioner. The Supervisor page displays that metadata and
+supported systemd capabilities. Other service backends remain unimplemented.

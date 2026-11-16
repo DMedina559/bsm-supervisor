@@ -4,6 +4,23 @@ The supervisor console runs independently of BSM. It remains available when the
 BSM service is stopped or fails. It manages one configured BSM instance and uses
 the same CLI locks, checkpoints, upgrade workflows, and recovery guards.
 
+## Workspace
+
+The console uses BSM frontend theme assets and branding, with sidebar navigation
+on desktop and a scrollable navigation bar on mobile. The header shows console
+connection status separately from the BSM service status.
+
+Overview summarizes the managed service, selected build, saved checkpoints and
+operations that need inspection. Expand an operation to inspect its full detail;
+expanded history entries stay open during refresh. Console jobs show a short ID,
+with the complete ID available on hover and inside the expanded entry. Service controls,
+version selection and recovery actions remain together under Overview.
+
+Backups & restore, Automation, Settings and Supervisor have dedicated workspaces.
+The breadcrumb and page description follow the selected workspace. All actions
+use the existing confirmation and recovery checks. Locking the console clears
+instance summaries and private form fields from the page.
+
 ## Install and start
 
 The LXC installer includes the web and encrypted-transfer dependencies. For a
@@ -207,11 +224,12 @@ the previous policy privately and refuse active scheduled jobs or foreign units.
 Configure an HTTPS webhook without revealing its saved URL; use a notification
 schedule for automatic delivery and retry of completion events.
 
-**Settings** edits supported timeouts, transfer limits, console autostart and BSM
-listener, port, log level and database URL. Existing database URLs are concealed;
+**Settings** edits supported timeouts, transfer limits, console autostart, lifecycle
+coupling and BSM listener, port, log level and database URL. Existing database URLs
+are concealed;
 a blank replacement leaves them unchanged. Proxmox/environment overrides are
-shown and cannot be replaced through the form. Runtime listener/database changes
-require BSM to be stopped and refresh the managed unit without starting it. The
+shown and cannot be replaced through the form. Runtime listener, database and
+lifecycle changes require BSM to be stopped and refresh the managed unit without starting it. The
 previous TOML file is retained privately as `state_dir/config-before-console.toml`.
 If unit refresh fails, inspect history and use **Refresh managed unit** after
 resolving the failure. Storage paths and service identity are read-only.
@@ -229,3 +247,52 @@ Health checks, service logs and diagnostics appear in **Action output**, with a
 downloadable last report. Read-only checks remain available for interrupted
 console jobs. Acknowledging a console job checks its process lease and does not
 acknowledge underlying operations or perform service/data recovery.
+
+## Couple BSM to the supervisor console
+
+By default, stopping the console leaves BSM running. Enable **Stop BSM when the
+supervisor console stops** in Settings to tie BSM to the standard
+`bsm-supervisor-console.service`. Stop BSM before saving this setting; saving
+refreshes its managed unit and leaves BSM stopped.
+
+With coupling enabled, systemd stops BSM when the console stops or fails. It sends
+SIGTERM through the managed service and allows its configured shutdown timeout
+before terminating remaining processes. This also applies during a console
+restart. **Start BSM after console startup** independently controls whether BSM
+starts again; normal recovery and maintenance guards still apply. If shutdown is
+still in progress after a console failure, startup waits within `service_timeout`
+before checking those guards. A timeout leaves BSM stopped for inspection.
+
+For CLI configuration, set `stop_bsm_with_supervisor = true` in the supervisor
+TOML file while BSM is stopped, then run:
+
+```bash
+bsm-supervisor unit-refresh --offline-confirmed
+bsm-supervisor start
+```
+
+Set it to `false` and refresh the unit while stopped to return to independent
+operation. Coupling requires the generated standard console service; a console
+started manually in a shell or under a custom unit does not satisfy that
+systemd dependency. Starting BSM with coupling enabled also starts its console
+dependency. It does not grant access to either web interface.
+
+## Inspecting interrupted work
+
+Operations include an **Inspect** control, and **Load older history** retrieves
+older pages beyond the latest 100 entries. Inspection shows the operation record,
+current service state and up to 500 related events. You can also enter an operation
+ID in Recovery and choose **Inspect operation**.
+
+After inspecting, **Acknowledge interruption** submits the inspected state digest.
+If the operation or service changed, inspect again. Live console workers, active
+CLI mutations, service transitions and protected recovery workflows still block
+acknowledgement. This clears interruption bookkeeping only; it never restores data
+or restarts BSM. Console-job acknowledgement is separate from its underlying
+operation. Inspect and resolve both when both are interrupted.
+
+On the Supervisor page, **Inspect pending update** shows the persisted update plan.
+**Cancel uninstalled update** archives only a matching `preparing` plan when the
+previous supervisor environment is still published. It performs no rollback or
+restart. Once publication has begun, use **Resume update**. The deployment details
+also show the installation mechanism, paths and supported systemd capabilities.

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import Config
+from .installation_permissions import create_root, service_readable
 from .releases import INDEX, PACKAGE, Release, ReleaseError
 from .store import Store
 
@@ -27,6 +28,7 @@ def run_command(arguments: list[str], log: Path, timeout: int = 900) -> None:
             stderr=subprocess.STDOUT,
             env=environment,
             start_new_session=True,
+            umask=0o022,
         ) as process:
             try:
                 code = process.wait(timeout=timeout)
@@ -52,7 +54,7 @@ def install(config: Config, store: Store, release: Release) -> dict:
     installation_id = "release-" + release.version
     with store.mutation("install:" + release.version) as operation_id:
         root = config.installations_dir.resolve()
-        root.mkdir(parents=True, exist_ok=True)
+        create_root(root)
         target = root / installation_id
         logs = config.state_dir / "logs"
         logs.mkdir(mode=0o700, exist_ok=True)
@@ -88,6 +90,7 @@ def install(config: Config, store: Store, release: Release) -> dict:
                 or not (target / "bin/bedrock-server-manager").is_file()
             ):
                 raise ReleaseError("Existing installation metadata is invalid")
+            service_readable(target)
             python = target / "bin/python"
             run_command([str(python), "-I", "-m", "pip", "check"], log)
             verification = (
@@ -98,6 +101,7 @@ def install(config: Config, store: Store, release: Release) -> dict:
             run_command([str(python), "-I", "-c", verification], log)
             return {**manifest, "id": installation_id, "reused": True}
         target.mkdir(mode=0o755)  # Never overwrite an existing environment.
+        target.chmod(0o755)
         store.note(operation_id, "Creating virtual environment: " + str(target))
         run_command([sys.executable, "-I", "-m", "venv", str(target)], log)
         python = target / "bin/python"
@@ -120,6 +124,7 @@ def install(config: Config, store: Store, release: Release) -> dict:
             ],
             log,
         )
+        service_readable(target)
         run_command([str(python), "-I", "-m", "pip", "check"], log)
         verification = (
             "from importlib.metadata import version; "

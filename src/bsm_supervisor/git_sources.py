@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,7 @@ from packaging.version import Version
 from .checkpoint_files import write_json
 from .config import Config
 from .install import run_command
+from .installation_permissions import create_root, service_readable
 from .releases import INDEX, PACKAGE, ReleaseError
 from .store import Store
 
@@ -81,50 +83,57 @@ def install_git(config: Config, store: Store, kind: str, reference: str) -> dict
             # setuptools-scm needs release tags to compute the package version.
             git(["fetch", "--tags", "--no-recurse-submodules", UPSTREAM], checkout)
             target = config.installations_dir.resolve() / ("git-" + commit)
-            target.parent.mkdir(parents=True, exist_ok=True)
+            create_root(target.parent)
             target.mkdir(mode=0o755)
-            logs = config.state_dir / "logs"
-            logs.mkdir(mode=0o700, exist_ok=True)
-            log = logs / (target.name + ".log")
-            run_command([sys.executable, "-I", "-m", "venv", str(target)], log)
-            python = str(target / "bin/python")
-            run_command(
-                [
-                    python,
-                    "-I",
-                    "-m",
-                    "pip",
-                    "--isolated",
-                    "install",
-                    "--no-input",
-                    "--no-cache-dir",
-                    "--index-url",
-                    INDEX,
-                    str(checkout),
-                ],
-                log,
-            )
-            run_command([python, "-I", "-m", "pip", "check"], log)
-            metadata = target / "verified-version.json"
-            script = (
-                "import json; from importlib.metadata import version; "
-                f"open({str(metadata)!r}, 'x').write(json.dumps(version({PACKAGE!r})))"
-            )
-            run_command([python, "-I", "-c", script], log)
-            version = str(Version(json.loads(metadata.read_text())))
-            metadata.unlink()
-            if not (target / "bin/bedrock-server-manager").is_file():
-                raise ReleaseError("Installed package has no BSM entry point")
-            manifest = dict(
-                source="git",
-                upstream=UPSTREAM,
-                ref_kind=kind,
-                reference=reference,
-                commit=commit,
-                version=version,
-                path=str(target),
-                python=sys.version,
-            )
-            write_json(target / "supervisor-installation.json", manifest)
-            store.add_installation(target.name, version, target)
-            return manifest
+            try:
+                target.chmod(0o755)
+                logs = config.state_dir / "logs"
+                logs.mkdir(mode=0o700, exist_ok=True)
+                log = logs / (target.name + ".log")
+                run_command([sys.executable, "-I", "-m", "venv", str(target)], log)
+                python = str(target / "bin/python")
+                run_command(
+                    [
+                        python,
+                        "-I",
+                        "-m",
+                        "pip",
+                        "--isolated",
+                        "install",
+                        "--no-input",
+                        "--no-cache-dir",
+                        "--index-url",
+                        INDEX,
+                        str(checkout),
+                    ],
+                    log,
+                )
+                service_readable(target)
+                run_command([python, "-I", "-m", "pip", "check"], log)
+                metadata = target / "verified-version.json"
+                script = (
+                    "import json; from importlib.metadata import version; "
+                    f"open({str(metadata)!r}, 'x').write("
+                    f"json.dumps(version({PACKAGE!r})))"
+                )
+                run_command([python, "-I", "-c", script], log)
+                version = str(Version(json.loads(metadata.read_text())))
+                metadata.unlink()
+                if not (target / "bin/bedrock-server-manager").is_file():
+                    raise ReleaseError("Installed package has no BSM entry point")
+                manifest = dict(
+                    source="git",
+                    upstream=UPSTREAM,
+                    ref_kind=kind,
+                    reference=reference,
+                    commit=commit,
+                    version=version,
+                    path=str(target),
+                    python=sys.version,
+                )
+                write_json(target / "supervisor-installation.json", manifest)
+                store.add_installation(target.name, version, target)
+                return manifest
+            except Exception:
+                shutil.rmtree(target, ignore_errors=True)
+                raise

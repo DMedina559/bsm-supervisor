@@ -26,6 +26,7 @@ from . import (
     console_admin,
     console_transfers,
     events,
+    recovery_console,
     scheduling,
     self_update,
 )
@@ -33,7 +34,7 @@ from .activation import selection
 from .checkpoint_files import read_json, write_json
 from .config import Config
 from .launchguard import boot_identity, controller_pid, process_generation
-from .service import SystemdService
+from .service import service_backend
 from .store import BusyError, Store
 from .transfer import private_secret
 
@@ -188,6 +189,7 @@ class Console:
         self.token_file = token_file
         self.origin = origin
         self.transfer_lock = threading.Lock()
+        self.shutdown_event = threading.Event()
         self.auto_start = {
             "state": "waiting",
             "reason": "Waiting for console listener readiness",
@@ -198,31 +200,48 @@ class Console:
         Store(config.state_dir)
 
     def snapshot(self) -> dict:
-        if self.config_path.is_file():
-            self.config = Config.load(self.config_path)
-        store = Store(self.config.state_dir)
+        config = (
+            Config.load(self.config_path) if self.config_path.is_file() else self.config
+        )
+        store = Store(config.state_dir)
         try:
-            status: dict = SystemdService(self.config).status()
+            status: dict = service_backend(config).status()
             status = {
                 key: status.get(key)
                 for key in ("ActiveState", "SubState", "MainPID", "Result")
             }
         except (OSError, RuntimeError) as exc:
             status = {"error": type(exc).__name__}
+        from .deployment import information
+
+        jobs = []
+        for path in self.jobs.glob("*.json"):
+            job = read_json(path)
+            jobs.append(
+                {
+                    **job,
+                    "execution_state": (
+                        "active"
+                        if recovery_console.job_active(config, job)
+                        else "inactive"
+                    ),
+                }
+            )
         return {
+            "deployment": information(config),
             "service": status,
             "autostart": self.auto_start,
-            "settings": console_admin.settings(self.config),
+            "settings": console_admin.settings(config),
             "supervisor": self_update.information(),
-            "transfers": console_transfers.listing(self.config),
-            "selection": selection(self.config, store),
+            "transfers": console_transfers.listing(config),
+            "selection": selection(config, store),
             "installations": store.installations(),
             "operations": store.operations(),
             "workflows": store.workflows(),
-            "checkpoints": checkpoints.list_checkpoints(self.config),
-            "schedules": scheduling.listing(self.config),
+            "checkpoints": checkpoints.list_checkpoints(config),
+            "schedules": scheduling.listing(config),
             "jobs": sorted(
-                (read_json(path) for path in self.jobs.glob("*.json")),
+                jobs,
                 key=lambda job: job.get("created_at", ""),
                 reverse=True,
             )[:50],
@@ -377,13 +396,15 @@ class Console:
         if scope["type"] != "http":
             return
         headers = {
-            key.decode().lower(): value.decode() for key, value in scope["headers"]
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in scope["headers"]
         }
         path, method = scope["path"], scope["method"]
         status, media, body = 200, "application/json", b"{}"
         security = [
             (b"cache-control", b"no-store"),
             (b"x-content-type-options", b"nosniff"),
+            (b"x-frame-options", b"DENY"),
             (b"referrer-policy", b"no-referrer"),
             (
                 b"content-security-policy",
@@ -391,20 +412,24 @@ class Console:
                 b"base-uri 'none'; form-action 'self'",
             ),
         ]
+        if urlsplit(self.origin).scheme == "https":
+            security.append((b"strict-transport-security", b"max-age=31536000"))
         try:
+            origin = headers.get("origin")
+            auth = headers.get("authorization", "")
+            credential = auth[7:] if auth.startswith("Bearer ") else ""
             if headers.get("host", "").lower() != urlsplit(self.origin).netloc.lower():
-                status = 400
+                status, body = 400, b'{"error":"Invalid Host header"}'
             elif method == "GET" and path in STATIC_ASSETS:
                 name, media = STATIC_ASSETS[path]
                 body = (ASSETS / name).read_bytes()
             elif path.startswith("/api/"):
-                credential = headers.get("authorization", "").removeprefix("Bearer ")
-                if not hmac.compare_digest(
+                if not credential or not hmac.compare_digest(
                     credential.encode(), private_secret(self.token_file)
                 ):
-                    status = 401
-                elif headers.get("origin") not in (None, self.origin):
-                    status = 403
+                    status, body = 401, b'{"error":"Authentication required"}'
+                elif origin is not None and origin.lower() != self.origin.lower():
+                    status, body = 403, b'{"error":"Cross-origin request rejected"}'
                 elif path == "/api/transfers" and method == "POST":
                     if not self.transfer_lock.acquire(blocking=False):
                         raise BusyError("Another upload is running")
@@ -436,6 +461,42 @@ class Console:
                             path.rsplit("/", 1)[1],
                         )
                     ).encode()
+                elif path == "/api/history" and method == "GET":
+                    query = scope.get("query_string", b"").decode()
+                    if query and not re.fullmatch(r"before=[1-9][0-9]{0,14}", query):
+                        raise ValueError("Invalid history cursor")
+                    items = await asyncio.to_thread(
+                        Store(self.config.state_dir).operations,
+                        int(query[7:]) if query else None,
+                    )
+                    body = json.dumps(
+                        {
+                            "operations": items,
+                            "next_before": (
+                                items[-1]["id"] if len(items) == 100 else None
+                            ),
+                        }
+                    ).encode()
+                elif (
+                    re.fullmatch(r"/api/recovery/operations/[1-9][0-9]{0,14}", path)
+                    and method == "GET"
+                ):
+                    body = json.dumps(
+                        await asyncio.to_thread(
+                            recovery_console.inspect_operation,
+                            self.config,
+                            Store(self.config.state_dir),
+                            int(path.rsplit("/", 1)[1]),
+                        )
+                    ).encode()
+                elif path == "/api/recovery/update" and method == "GET":
+                    body = json.dumps(
+                        await asyncio.to_thread(
+                            recovery_console.inspect_update,
+                            self.config,
+                            self.config_path,
+                        )
+                    ).encode()
                 elif path == "/api/state" and method == "GET":
                     body = json.dumps(await asyncio.to_thread(self.snapshot)).encode()
                 elif path == "/api/events" and method == "GET":
@@ -450,21 +511,31 @@ class Console:
                     ).encode()
                 elif re.fullmatch(r"/api/jobs/[0-9a-f]{32}", path) and method == "GET":
                     log = self.jobs / (path.rsplit("/", 1)[1] + ".log")
-                    with log.open("rb") as stream:
-                        stream.seek(max(0, log.stat().st_size - 32768))
-                        body = json.dumps(
-                            {
-                                "output": stream.read(32768).decode(
-                                    "utf-8", errors="replace"
-                                )
-                            }
-                        ).encode()
+                    try:
+                        with log.open("rb") as stream:
+                            stream.seek(max(0, log.stat().st_size - 32768))
+                            body = json.dumps(
+                                {
+                                    "output": stream.read(32768).decode(
+                                        "utf-8", errors="replace"
+                                    )
+                                }
+                            ).encode()
+                    except FileNotFoundError:
+                        status, body = 404, b'{"error":"Job log not found"}'
                 elif (
                     path == "/api/actions"
                     or re.fullmatch(r"/api/jobs/[0-9a-f]{32}/acknowledge", path)
+                    or re.fullmatch(
+                        r"/api/recovery/operations/[1-9][0-9]{0,14}/acknowledge", path
+                    )
+                    or path == "/api/recovery/update/cancel"
                 ) and method == "POST":
-                    if headers.get("content-type") != "application/json":
-                        status = 415
+                    content_type = (
+                        headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                    )
+                    if content_type != "application/json":
+                        status, body = 415, b'{"error":"Expected application/json"}'
                     else:
                         data = bytearray()
                         while True:
@@ -479,17 +550,55 @@ class Console:
                         value = json.loads(data)
                         if not isinstance(value, dict):
                             raise ValueError("Action request must be an object")
-                        if path.endswith("/acknowledge"):
+                        if path.startswith("/api/recovery/"):
+                            if (
+                                value.keys() != {"confirmed", "digest"}
+                                or value.get("confirmed") is not True
+                                or not re.fullmatch(
+                                    r"[0-9a-f]{64}", str(value.get("digest", ""))
+                                )
+                            ):
+                                raise ValueError(
+                                    "Inspect recovery state and confirm this action"
+                                )
+                            if not self.lock.acquire(blocking=False):
+                                raise BusyError("A console action is still running")
+                            try:
+                                if path.endswith("/cancel"):
+                                    await asyncio.to_thread(
+                                        recovery_console.cancel_update,
+                                        self.config,
+                                        Store(self.config.state_dir),
+                                        value["digest"],
+                                        self.config_path,
+                                    )
+                                else:
+                                    await asyncio.to_thread(
+                                        recovery_console.acknowledge_operation,
+                                        self.config,
+                                        Store(self.config.state_dir),
+                                        int(path.split("/")[4]),
+                                        value["digest"],
+                                    )
+                            finally:
+                                self.lock.release()
+                            body = b'{"acknowledged":true}'
+                        elif path.endswith("/acknowledge"):
                             if value != {"confirmed": True}:
                                 raise ValueError(
                                     "Confirm service and operation inspection"
                                 )
-                            await asyncio.to_thread(
-                                acknowledge,
-                                self.config,
-                                Store(self.config.state_dir),
-                                path.split("/")[3],
-                            )
+                            if not self.lock.acquire(blocking=False):
+                                raise BusyError("A console action is still running")
+                            try:
+                                await asyncio.to_thread(
+                                    acknowledge,
+                                    self.config,
+                                    Store(self.config.state_dir),
+                                    path.split("/")[3],
+                                )
+                            finally:
+                                self.lock.release()
                             body = b'{"acknowledged":true}'
                         else:
                             body = json.dumps(
@@ -497,9 +606,9 @@ class Console:
                             ).encode()
                             status = 202
                 else:
-                    status = 404
+                    status, body = 404, b'{"error":"Not found"}'
             else:
-                status = 404
+                status, body = 404, b'{"error":"Not found"}'
         except BusyError:
             status, body = (
                 409,
@@ -582,6 +691,7 @@ async def run_server(server, app: Console) -> None:
     try:
         await server.serve()
     finally:
+        app.shutdown_event.set()
         startup.cancel()
         await asyncio.gather(startup, return_exceptions=True)
 
@@ -599,7 +709,6 @@ def acknowledge(config: Config, store: Store, job_id: str) -> None:
         except BlockingIOError as exc:
             raise BusyError("Console job is still executing") from exc
         with store.lock():
-            store.require_idle()
             job = read_json(path)
             if job["state"] not in ("running", "interrupted"):
                 raise ValueError("Console job does not need acknowledgement")

@@ -14,6 +14,7 @@ from . import (
     checkpoints,
     cleanup,
     console_admin,
+    data_permissions,
     diagnostics,
     events,
     operations,
@@ -32,7 +33,7 @@ from .git_sources import install_git
 from .install import install
 from .integration import inspect as inspect_integration
 from .releases import ReleaseError, discover, select
-from .service import ServiceError, SystemdService
+from .service import ServiceError, service_backend
 from .service_environment import write_environment
 from .setup import setup as setup_installation
 from .store import BusyError, Store
@@ -136,6 +137,8 @@ def parser() -> argparse.ArgumentParser:
     updater.add_argument("--maintenance-confirmed", action="store_true", required=True)
     environment = commands.add_parser("service-environment")
     environment.add_argument("--offline-confirmed", action="store_true", required=True)
+    permissions = commands.add_parser("permissions-repair")
+    permissions.add_argument("--offline-confirmed", action="store_true", required=True)
     refresh_unit = commands.add_parser("unit-refresh")
     refresh_unit.add_argument("--user", default="bsm")
     refresh_unit.add_argument("--offline-confirmed", action="store_true", required=True)
@@ -269,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps([release.to_dict() for release in releases], indent=2))
             return 0
         if args.command == "status":
-            print(json.dumps(SystemdService(config).status(), indent=2))
+            print(json.dumps(service_backend(config).status(), indent=2))
             return 0
         store = Store(config.state_dir)
         if args.command == "console-task":
@@ -374,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "service-environment":
             with store.mutation("service:environment"):
                 try:
-                    state = SystemdService(config).status()
+                    state = service_backend(config).status()
                 except ServiceError as error:
                     if str(error) != f"Service is not installed: {config.service_unit}":
                         raise
@@ -389,6 +392,8 @@ def main(argv: list[str] | None = None) -> int:
                         )
                 write_environment(config)
             print("Private managed service environment written")
+        elif args.command == "permissions-repair":
+            print(json.dumps(data_permissions.repair(config, store), indent=2))
         elif args.command == "unit-refresh":
             refresh(config, store, args.user)
             print("Managed unit and environment refreshed; BSM remains stopped")

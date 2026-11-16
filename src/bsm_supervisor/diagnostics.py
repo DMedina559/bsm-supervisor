@@ -7,12 +7,13 @@ import pwd
 import shutil
 import sqlite3
 import subprocess
+from pathlib import Path
 
 from . import runtime
 from .checkpoint_files import read_json
 from .config import Config
 from .integration import inspect, require_managed
-from .service import ServiceError, SystemdService
+from .service import ServiceError, service_backend
 
 
 def urls(config: Config) -> list[str]:
@@ -153,7 +154,7 @@ def doctor(config: Config, check_health: bool = True) -> dict:
     )
     state = None
     try:
-        state = SystemdService(config).status()
+        state = service_backend(config).status()
         add("service", True, "Service state: " + state.get("ActiveState", "unknown"))
         try:
             require_managed(config, state)
@@ -202,6 +203,20 @@ def doctor(config: Config, check_health: bool = True) -> dict:
                     "Check ownership, traversal permissions, "
                     "and interpreter accessibility",
                 )
+            try:
+                backups: Path | None = Path(inspect(config)["paths"]["backups"])
+            except (OSError, ValueError, sqlite3.Error):
+                backups = None
+            if backups is not None and backups.is_dir() and not backups.is_symlink():
+                for path in (backups, *sorted(backups.iterdir())):
+                    if path.is_dir() and not path.is_symlink():
+                        add(
+                            "service-access:backup:" + path.name,
+                            accessible(path, account.pw_uid, groups, 7),
+                            "Service account access to backup directory: " + str(path),
+                            "Stop BSM and run permissions-repair --offline-confirmed; "
+                            "repair external backup paths separately",
+                        )
         except KeyError:
             add(
                 "service-account",

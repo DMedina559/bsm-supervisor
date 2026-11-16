@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Iterator
 
 from .config import Config
-from .service import SystemdService, guard_command, managed_command, unset_environment
+from .service import guard_command, managed_command, service_backend, unset_environment
 from .service_environment import verify_environment
 
 BOOTSTRAP = "bedrock_server_manager.json"
@@ -163,7 +163,7 @@ def inspect(config: Config) -> dict:
 
 def require_offline(config: Config) -> None:
     """Require an inactive managed unit with no pending job or remaining PID."""
-    state = SystemdService(config).status()
+    state = service_backend(config).status()
     if (
         state.get("ActiveState") != "inactive"
         or state.get("MainPID") != "0"
@@ -181,6 +181,14 @@ def require_managed(config: Config, state: dict[str, str]) -> None:
     )
     if state.get("EnvironmentFiles", "").strip() != expected_environment:
         raise ValueError("Managed service lacks its pinned environment file")
+    if any(
+        ("bsm-supervisor-console.service" in state.get(key, "").split())
+        != config.stop_bsm_with_supervisor
+        for key in ("BindsTo", "After")
+    ):
+        raise ValueError(
+            "Refresh the managed unit to apply supervisor lifecycle coupling"
+        )
     command = state.get("ExecStart", "")
     expected = managed_command(config)
     if (

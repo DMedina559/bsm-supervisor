@@ -31,7 +31,7 @@ from .checkpoint_files import read_json, write_json
 from .config import Config
 from .environment import overrides
 from .integration import require_managed, require_offline
-from .service import SystemdService
+from .service import service_backend
 from .store import Store
 from .unit_refresh import publish, refresh
 
@@ -44,9 +44,16 @@ SETTINGS = {
     "service_timeout",
     "web_job_timeout",
     "web_auto_start",
+    "stop_bsm_with_supervisor",
     "web_transfer_limit",
 }
-RUNTIME_SETTINGS = {"bsm_host", "bsm_port", "bsm_log_level", "bsm_db_url"}
+RUNTIME_SETTINGS = {
+    "bsm_host",
+    "bsm_port",
+    "bsm_log_level",
+    "bsm_db_url",
+    "stop_bsm_with_supervisor",
+}
 SCHEMAS = {
     "backup-create": set(),
     "backup-restore": {"target", "digest", "restart_after"},
@@ -186,7 +193,7 @@ def restore_backup(config: Config, store: Store, value: dict) -> dict:
                 "Checkpoint changed or BSM version differs; inspect and select "
                 "the matching version before restoring"
             )
-        state = SystemdService(config).status()
+        state = service_backend(config).status()
         require_managed(config, state)
         if state.get("ActiveState") == "active":
             with store.mutation("service:restore-stop", preserve_on_error=True):
@@ -281,7 +288,7 @@ def save_settings(config: Config, config_path: Path, store: Store, value: dict) 
         user = "bsm"
         if runtime_change:
             require_offline(config)
-            user = SystemdService(config).status().get("User") or "bsm"
+            user = service_backend(config).status().get("User") or "bsm"
         if config_path.is_symlink():
             raise ValueError("Configuration file must not be a symlink")
         original = config_path.read_bytes()
@@ -316,7 +323,7 @@ def execute(config: Config, config_path: Path, store: Store, value: dict) -> dic
     if action == "backup-create":
         with store.lock():
             store.require_idle()
-            state = SystemdService(config).status()
+            state = service_backend(config).status()
             require_managed(config, state)
             running = state.get("ActiveState") == "active"
             if running:
@@ -474,7 +481,7 @@ def execute(config: Config, config_path: Path, store: Store, value: dict) -> dic
             "reconnect": "Reload and reconnect after the console restarts",
         }
     if action == "unit-refresh":
-        user = SystemdService(config).status().get("User") or "bsm"
+        user = service_backend(config).status().get("User") or "bsm"
         refresh(config, store, user)
         return {"refreshed": True, "bsm_started": False}
     if action == "service-logs":

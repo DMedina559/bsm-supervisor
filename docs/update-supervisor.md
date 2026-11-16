@@ -116,3 +116,26 @@ systemctl restart bsm-supervisor-console.service
 
 The supervisor updater preserves the console token, schedules, exported
 checkpoints, and event journal. It does not restart the console automatically.
+
+
+## Interrupted source verification
+
+`--resume` continues the saved reference and exact source revision. Passing another
+`--ref` alongside it does not select a new target. Inspect
+`state_dir/supervisor-update.json` before resuming; it records the target, phase
+and original running/stopped intent.
+
+If installation ends with **Installed supervisor revision differs from the pinned
+source**, retain the update plan and inspect `bsm-supervisor version`, the installed
+`supervisor-installation.json`, and service state. The installer may have published
+a new CLI environment while the BSM unit still references its previous environment.
+Do not delete the plan, overwrite its revision, or mark it completed to bypass the
+verification check.
+
+Older installers derived source identity from the extracted archive directory
+name. GitHub can abbreviate that name, leaving the recorded revision empty.
+Current installers resolve the full commit before download, fetch that exact
+archive, check its directory prefix, and persist the full revision separately.
+Historical tags retain their original installer, so resuming an old pinned update
+can still encounter that older behavior. Repair must use verified source and
+preserve the recorded service state before continuing managed-unit refresh.
