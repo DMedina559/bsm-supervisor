@@ -311,7 +311,7 @@
           </svg>
           Check readiness
          </button>
-         <button class="action-button" data-admin-action="service-logs">
+         <button class="action-button" data-recovery-ack id="service-logs-open" type="button">
           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
            <path d="M8 3h10a2 2 0 0 1 2 2v16H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2ZM8 7h8M8 11h8M8 15h5"></path>
           </svg>
@@ -409,7 +409,7 @@
          </h2>
         </div>
         <label>
-         Operation or workflow ID
+         Operation ID
          <input class="form-input" id="recovery" inputmode="numeric" placeholder="Enter ID or click Inspect in Operations"/>
         </label>
         <div class="action-group">
@@ -418,20 +418,6 @@
           <button class="action-button" data-recovery-ack="" id="operation-inspect" type="button">Inspect operation</button>
           <button class="action-button" data-recovery-ack="" id="operation-acknowledge" type="button">
            Acknowledge interruption
-          </button>
-         </div>
-        </div>
-        <div class="action-group">
-         <span class="action-group-label">Interrupted upgrade</span>
-         <div class="buttons">
-          <button class="action-button" data-action="upgrade-resume" type="button">
-           Resume upgrade
-          </button>
-          <button class="action-button" data-action="upgrade-cancel" type="button">
-           Cancel unstarted upgrade
-          </button>
-          <button class="action-button danger-button" data-action="upgrade-restore" type="button">
-           Restore upgrade checkpoint
           </button>
          </div>
         </div>
@@ -447,6 +433,49 @@
          Inspect the history and current service state before acknowledging anything. Acknowledgement does not restore data.
         </p>
         <pre aria-live="polite" class="log" id="recovery-report">Inspect an operation to review its service state and events.</pre>
+       </article>
+      </div>
+      <div class="activity-grid">
+       <article class="panel activity-panel" id="upgrades-panel">
+        <h2>BSM Upgrades</h2>
+        <div class="activity-toolbar">
+         <label>
+          Upgrade History
+          <select class="form-input" id="upgrade-history"></select>
+         </label>
+         <button class="action-button secondary" id="upgrade-inspect" data-recovery-ack type="button" disabled>Inspect Upgrade</button>
+        </div>
+        <p id="upgrade-summary" role="status"></p>
+        <div id="upgrade-steps"></div>
+        <div class="action-group" id="upgrade-recovery" hidden>
+         <span class="action-group-label">Upgrade recovery</span>
+         <div class="buttons">
+          <button class="action-button" data-action="upgrade-resume" id="upgrade-resume" hidden disabled type="button">
+           Resume upgrade
+          </button>
+          <button class="action-button" data-action="upgrade-cancel" id="upgrade-cancel" hidden disabled type="button">
+           Cancel unstarted upgrade
+          </button>
+          <button class="action-button danger-button" data-action="upgrade-restore" id="upgrade-restore" hidden disabled type="button">
+           Restore upgrade checkpoint
+          </button>
+         </div>
+        </div>
+       </article>
+       <article class="panel activity-panel" id="service-logs-panel">
+        <h2>Service Logs</h2>
+        <div class="activity-toolbar">
+         <label>
+          Journal Source
+          <select class="form-input" id="service-log-source">
+           <option value="bsm">BSM Service</option>
+           <option value="console">Supervisor Console</option>
+          </select>
+         </label>
+         <button class="action-button secondary" id="service-logs-reload" data-recovery-ack type="button">Reload Log</button>
+        </div>
+        <p id="service-logs-status" role="status"></p>
+        <pre class="log" id="service-log-output" tabindex="0" aria-label="Service journal output"></pre>
        </article>
       </div>
       <div class="activity-grid">
@@ -473,10 +502,10 @@
           </svg>
          </span>
          <h2>
-          Console jobs
+          Console Jobs
          </h2>
         </div>
-        <div id="jobs"></div>
+        <div id="jobs" aria-label="Recent console jobs"></div>
         <p class="empty-caption">
          No console jobs yet. Your next action will appear here.
         </p>

@@ -139,3 +139,46 @@ test('recovery inspection works with interrupted jobs and submits inspected dige
  await expect.poll(()=>acknowledged).toBeTruthy();
  await expect(page.locator('#recovery-report')).toContainText('No data restored');
 });
+
+test('upgrade recovery targets the inspected workflow and journals remain readable during jobs', async ({page}) => {
+  const job = {id:'a'.repeat(32), action:'upgrade', state:'running', execution_state:'active'};
+  const workflow = {id:27, kind:'upgrade', state:'running'};
+  const state = {
+    service:{ActiveState:'inactive'}, selection:null, installations:[], checkpoints:[],
+    operations:[], jobs:[job], schedules:[], workflows:[workflow],
+  };
+  await page.route('**/api/state', route => route.fulfill({json:state}));
+  await page.route('**/api/upgrades/27', route => route.fulfill({json:{
+    workflow, phase:'checkpointed', original_version:'4.0.0', target_version:'4.1.0',
+    steps:[{id:4,action:'checkpoint:create',state:'succeeded'}],
+    recovery:['cancel','resume','restore'],
+  }}));
+  await page.route('**/api/logs/console', route => route.fulfill({json:{output:'Supervisor journal entry'}}));
+  await page.route('**/api/jobs/'+job.id, route => route.fulfill({json:{output:'Upgrade output'}}));
+  await login(page);
+  await expect(page.locator('#summary-attention')).toHaveText('Upgrade #27');
+  await page.locator('#upgrade-inspect').click();
+  await expect(page.locator('#upgrade-summary')).toContainText('4.0.0 → 4.1.0');
+  await expect(page.locator('#upgrade-steps')).toContainText('checkpoint · create');
+  await expect(page.locator('#upgrade-cancel')).toBeDisabled();
+  await page.locator('#service-log-source').selectOption('console');
+  await expect(page.locator('#service-log-output')).toHaveText('Supervisor journal entry');
+
+  const jobCard = page.locator('#jobs .job-card');
+  await jobCard.locator('summary').click();
+  await expect(jobCard.locator('pre.log')).toHaveText('Upgrade output');
+  state.jobs = [{...job,state:'failed',execution_state:'inactive'}];
+  await page.locator('#refresh').click();
+  await expect(jobCard.locator('.status-badge')).toHaveText('Failed');
+  await expect(jobCard).toHaveAttribute('open','');
+  await expect(page.locator('#upgrade-cancel')).toBeEnabled();
+  await page.locator('#recovery').fill('4');
+  await page.route('**/api/actions', route => route.fulfill({status:202,json:{id:job.id,action:'upgrade-cancel'}}));
+  page.once('dialog', dialog => dialog.accept());
+  const submitted = page.waitForRequest(request => request.url().endsWith('/api/actions'));
+  await page.locator('#upgrade-cancel').click();
+  expect((await submitted).postDataJSON()).toEqual({action:'upgrade-cancel',target:'27',confirmed:true});
+  await page.locator('#logout').click();
+  await expect(page.locator('#service-log-output')).toBeEmpty();
+  await expect(page.locator('#upgrade-summary')).toBeEmpty();
+});

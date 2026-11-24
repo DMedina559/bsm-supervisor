@@ -257,8 +257,8 @@ class Console:
                 for path in self.jobs.glob("*.json")
             ):
                 raise BusyError(
-                    "An interrupted console job requires web-job-acknowledge after "
-                    "checking history and service state"
+                    "Inspect service state and history, then acknowledge the "
+                    "interrupted job under Console jobs"
                 )
             job = {
                 "id": uuid4().hex,
@@ -305,6 +305,7 @@ class Console:
                     [
                         sys.executable,
                         "-I",
+                        "-u",
                         "-m",
                         "bsm_supervisor",
                         "--config",
@@ -489,6 +490,35 @@ class Console:
                             int(path.rsplit("/", 1)[1]),
                         )
                     ).encode()
+                elif (
+                    re.fullmatch(r"/api/upgrades/[1-9][0-9]{0,14}", path)
+                    and method == "GET"
+                ):
+                    body = json.dumps(
+                        await asyncio.to_thread(
+                            recovery_console.inspect_upgrade,
+                            self.config,
+                            Store(self.config.state_dir),
+                            int(path.rsplit("/", 1)[1]),
+                        )
+                    ).encode()
+                elif path in ("/api/logs/bsm", "/api/logs/console") and method == "GET":
+                    unit = (
+                        self.config.service_unit
+                        if path.endswith("/bsm")
+                        else "bsm-supervisor-console.service"
+                    )
+                    try:
+                        output = await asyncio.to_thread(
+                            console_admin.service_logs, unit
+                        )
+                    except (OSError, subprocess.SubprocessError):
+                        status, body = (
+                            503,
+                            b'{"error":"Unable to read the service journal"}',
+                        )
+                    else:
+                        body = json.dumps({"output": output}).encode()
                 elif path == "/api/recovery/update" and method == "GET":
                     body = json.dumps(
                         await asyncio.to_thread(

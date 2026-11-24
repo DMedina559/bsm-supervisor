@@ -485,22 +485,7 @@ def execute(config: Config, config_path: Path, store: Store, value: dict) -> dic
         refresh(config, store, user)
         return {"refreshed": True, "bsm_started": False}
     if action == "service-logs":
-        command_result = subprocess.run(
-            [
-                "journalctl",
-                "-u",
-                config.service_unit,
-                "-n",
-                "200",
-                "--no-pager",
-                "--output=short-iso",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        )
-        return {"log": command_result.stdout[-65536:]}
+        return {"log": service_logs(config.service_unit)}
     if action == "doctor":
         return diagnostics.doctor(config, False)
     if action == "health":
@@ -509,6 +494,18 @@ def execute(config: Config, config_path: Path, store: Store, value: dict) -> dic
             raise ValueError("Select a BSM installation first")
         return runtime.ready(config, current["version"])
     raise ValueError("Unsupported administration action")
+
+
+def service_logs(unit: str) -> str:
+    result = subprocess.run(
+        ["journalctl", "-u", unit, "-n", "200", "--no-pager", "--output=short-iso"],
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=30,
+        check=True,
+    )
+    return result.stdout[-65536:]
 
 
 def execute_request(

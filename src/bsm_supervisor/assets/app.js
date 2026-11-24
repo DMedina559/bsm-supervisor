@@ -1,9 +1,14 @@
 'use strict';
 let token = '', cursor = 0, busy = false, session = 0, submitting = false;
 let controller = new AbortController();
+let inspectedUpgrade = null, upgradeInspection = 0, journalLoad = 0, followedJob = null;
 function lockConsole() {
   session++; controller.abort(); controller = new AbortController();
-  token=''; cursor=0; busy=false; submitting=false;
+  token=''; cursor=0; busy=false; submitting=false; followedJob=null;
+  clearUpgrade();
+  el('upgrade-history').replaceChildren();
+  el('upgrade-inspect').disabled=true;
+  clearJournal();
   if(document.body)document.body.dataset.connected='false';
   el('console-connection').textContent='Locked';el('connection-chip').dataset.state='locked';
   for(const id of ['sidebar-version','sidebar-installation','summary-service','summary-version','summary-backups','summary-attention','summary-service-detail','summary-version-detail','summary-backups-detail','summary-attention-detail'])el(id).textContent='';
@@ -16,7 +21,9 @@ function lockConsole() {
 }
 function updateButtons() {
   if(typeof updateAdminButtons==='function')updateAdminButtons();
-  document.querySelectorAll('[data-action]').forEach(button=>{button.disabled=submitting || !!el('jobs').querySelector('[data-running]');});
+  document.querySelectorAll('[data-action]').forEach(button=>{button.disabled=submitting || !!el('jobs').querySelector('[data-running]') ||
+    (button.dataset.action.startsWith('upgrade-') &&
+      !inspectedUpgrade?.recovery.includes(button.dataset.action.slice(8)));});
 }
 const el = id => document.getElementById(id);
 async function request(path, value) {
@@ -48,7 +55,7 @@ function options(id, items, label) {
   if (items.some(item => item.id === previous)) select.value = previous;
 }
 function actionLabel(action) {
-  return ({'service:start':'Start BSM','service:stop':'Stop BSM','service:graceful-stop':'Graceful stop','service:restart':'Restart BSM','service:unit-refresh':'Refresh managed unit','supervisor:install':'Install supervisor','supervisor:update-preflight':'Supervisor update checks'})[action] || String(action).replaceAll(':',' · ').replaceAll('-',' ');
+  return ({'upgrade':'Upgrade BSM','upgrade-cancel':'Cancel BSM Upgrade','upgrade-resume':'Resume BSM Upgrade','upgrade-restore':'Restore Upgrade Checkpoint','service:start':'Start BSM','service:stop':'Stop BSM','service:graceful-stop':'Graceful stop','service:restart':'Restart BSM','service:unit-refresh':'Refresh managed unit','supervisor:install':'Install supervisor','supervisor:update-preflight':'Supervisor update checks'})[action] || String(action).replaceAll(':',' · ').replaceAll('-',' ');
 }
 function renderOperationRows(items, container=el('operations')) {
   if(!items.length){container.textContent='No operations recorded. Service and maintenance history will appear here.';return;}
@@ -63,10 +70,109 @@ function renderOperationRows(items, container=el('operations')) {
     heading.append(id,label,badge);row.append(heading);
     if(item.started_at){const time=document.createElement('time');time.className='operation-time';time.dateTime=item.started_at;time.textContent=new Date(item.started_at).toLocaleString();row.append(time);}
     if(item.detail){const detail=document.createElement('p');detail.className='operation-detail';detail.textContent=item.detail;row.append(detail);}
-    const inspect=document.createElement('button');inspect.type='button';inspect.className='action-button';inspect.textContent='Inspect #'+item.id;inspect.setAttribute('data-recovery-ack','');inspect.onclick=()=>{el('recovery').value=String(item.id);inspectOperation();};row.append(inspect);
+    const inspect=document.createElement('button');inspect.type='button';inspect.className='action-button';inspect.textContent='Inspect #'+item.id;inspect.setAttribute('data-recovery-ack','');inspect.onclick=()=>{el('recovery').value=String(item.id);el('recovery').focus?.();inspectOperation();};row.append(inspect);
     return row;
   }));
 }
+function createJobRow(id) {
+  const row=document.createElement('details');
+  row.className='job-card';
+  row.dataset.id=id;
+
+  const summary=document.createElement('summary');
+  summary.className='job-heading';
+  summary.title=id;
+  const title=document.createElement('span');
+  title.className='job-title';
+  const action=document.createElement('strong');
+  const time=document.createElement('time');
+  time.className='job-time';
+  title.append(action,time);
+  const status=document.createElement('span');
+  status.className='status-badge';
+  summary.append(title,status);
+
+  const body=document.createElement('div');
+  body.className='job-body';
+  const identity=document.createElement('p');
+  identity.className='job-identity';
+  identity.textContent='Job '+id;
+  const output=document.createElement('pre');
+  output.className='log';
+  output.tabIndex=0;
+  output.setAttribute('aria-label','Output for job '+id);
+  const acknowledge=document.createElement('button');
+  acknowledge.type='button';
+  acknowledge.className='action-button';
+  acknowledge.textContent='Acknowledge after inspection';
+  acknowledge.setAttribute('data-recovery-ack','');
+  acknowledge.onclick=()=>recoveryRequest(async()=>{
+    if(!confirm('Confirm service and operation inspection? This clears the console job record.')) return;
+    await request('jobs/'+id+'/acknowledge',{confirmed:true});
+    await refresh();
+  });
+  body.append(identity,output,acknowledge);
+  row.append(summary,body);
+
+  let loading=false, loadedState;
+  async function loadOutput() {
+    if(!row.open || loading) return;
+    const state=row.dataset.state;
+    if(loadedState===state && state!=='running' && state!=='interrupted') return;
+    loading=true;
+    try {
+      const report=await request('jobs/'+id);
+      if(output.textContent!==report.output) output.textContent=report.output || 'No output yet.';
+      loadedState=state;
+    } catch(error) {
+      if(error.name!=='AbortError') output.textContent=error.message;
+    } finally {
+      loading=false;
+    }
+  }
+  row.addEventListener('toggle',loadOutput);
+  return row;
+}
+function renderJobs(items) {
+  const list=el('jobs');
+  const existing=new Map([...list.querySelectorAll('.job-card')].map(row=>[row.dataset.id,row]));
+  let previous=null;
+  for(const item of items) {
+    const row=existing.get(item.id) || createJobRow(item.id);
+    existing.delete(item.id);
+    const pending=['running','interrupted'].includes(item.state);
+    const active=pending && item.execution_state!=='inactive';
+    const state=pending && !active ? 'interrupted' : item.state;
+    row.toggleAttribute('data-running',active);
+    const stateChanged=row.dataset.state!==state;
+    row.dataset.state=state;
+    row.querySelector('strong').textContent=actionLabel(item.action);
+    const time=row.querySelector('time');
+    if(item.created_at) {
+      time.dateTime=item.created_at;
+      time.textContent=new Date(item.created_at).toLocaleString();
+    }
+    const status=row.querySelector('.status-badge');
+    status.dataset.state=state;
+    status.textContent=state.charAt(0).toUpperCase()+state.slice(1);
+    row.querySelector('button').hidden=!pending || active;
+    if(!row.parentNode) {
+      // Insert each new job next to its immediate predecessor in the sorted list.
+      if(previous) previous.after(row);
+      else list.prepend(row);
+    }
+    previous=row;
+    if(row.open && (active || stateChanged)) row.dispatchEvent(new Event('toggle'));
+    if(followedJob===item.id) {
+      followedJob=null;
+      row.open=true;
+      row.scrollIntoView?.({block:'nearest'});
+      row.querySelector('summary').focus();
+    }
+  }
+  for(const obsolete of existing.values()) obsolete.remove();
+}
+
 function renderWorkspace(state) {
   const service=state.service||{},selected=state.selection,checkpoints=state.checkpoints||[];
   const pending=(state.operations||[]).filter(item=>['running','interrupted'].includes(item.state));
@@ -98,19 +204,22 @@ async function refresh() {
     options('installation',state.installations,item=>item.id+' · '+item.version);
     options('checkpoint',state.checkpoints,item=>item.id+(item.invalid?' · invalid':''));
     renderOperationRows(state.operations);renderWorkspace(state);
+    renderUpgrades(state.workflows || []);
+    const pendingUpgrade=(state.workflows || []).find(item=>item.state==='running');
+    if(pendingUpgrade) {
+      el('summary-attention').textContent='Upgrade #'+pendingUpgrade.id;
+      el('summary-attention').dataset.state='attention';
+      el('summary-attention-detail').textContent='Review BSM upgrades';
+    }
     if(olderBefore===null) {
       if(state.operations.length===100) olderBefore=state.operations[state.operations.length-1].id;
       el('history-more').hidden=olderBefore===null;
     }
     const pendingOperation=state.operations.find(item=>['running','interrupted'].includes(item.state));
-    el('notice').textContent=pendingOperation ? 'Operation #'+pendingOperation.id+' needs inspection. Check its details and current service state before acknowledging in Recovery.' : '';
-    const previousLogs=new Map([...el('jobs').querySelectorAll('details[open]')].map(row=>[row.dataset.id,row.querySelector('pre')?.textContent||'']));
-    el('jobs').replaceChildren(...state.jobs.map(item=>{
-      const row=document.createElement('details'), summary=document.createElement('summary'), output=document.createElement('pre');
-      row.className='row'; if(['running','interrupted'].includes(item.state) && item.execution_state!=='inactive') row.dataset.running='true'; row.dataset.id=item.id; row.open=previousLogs.has(item.id); if(row.open) output.textContent=previousLogs.get(item.id)||''; summary.textContent=actionLabel(item.action)+' · '+item.state+' · '+item.id.slice(0,8);summary.title=item.id;
-      const identity=document.createElement('p');identity.className='job-identity';identity.textContent='Job '+item.id;
-      row.append(summary,identity,output); if(['running','interrupted'].includes(item.state)){const acknowledge=document.createElement('button');acknowledge.type='button';acknowledge.className='action-button';acknowledge.textContent='Acknowledge after inspection';acknowledge.setAttribute('data-recovery-ack','');acknowledge.onclick=async()=>{if(!confirm('Confirm service and operation inspection? This only acknowledges console bookkeeping.'))return;try{await request('jobs/'+item.id+'/acknowledge',{confirmed:true});await refresh();}catch(error){el('error').textContent=error.message;}};row.append(acknowledge);} row.addEventListener('toggle',async()=>{if(row.open) {try {output.textContent=(await request('jobs/'+item.id)).output;} catch(error) {output.textContent=error.message;}}}); return row;
-    }));
+    el('notice').textContent=pendingUpgrade
+      ? 'Upgrade #'+pendingUpgrade.id+' is pending. Inspect it under BSM upgrades.'
+      : pendingOperation ? 'Operation #'+pendingOperation.id+' needs inspection. Check its details and current service state before acknowledging in Recovery.' : '';
+    renderJobs(state.jobs);
     if(typeof renderAdmin==='function')renderAdmin(state);
     el('schedules').textContent=state.schedules.length ? JSON.stringify(state.schedules,null,2) : 'No schedules configured.';
     const progress=await request('events?after='+cursor);
@@ -136,16 +245,28 @@ document.querySelectorAll('[data-action]').forEach(button=>button.onclick=async(
   if(['install','upgrade'].includes(action)) value.target=el('version').value.trim();
   else if(action==='activate') value.target=el('installation').value;
   else if(['checkpoint-verify','restore-plan','checkpoint-restore'].includes(action)) value.target=el('checkpoint').value;
-  else if(['acknowledge','upgrade-resume','upgrade-cancel','upgrade-restore','restore-recover'].includes(action)) value.target=el('recovery').value;
+  else if(action.startsWith('upgrade-')) {
+    if(!inspectedUpgrade?.recovery.includes(action.slice(8))) return;
+    value.target=String(inspectedUpgrade.workflow.id);
+  }
+  else if(['acknowledge','restore-recover'].includes(action)) value.target=el('recovery').value;
   if(!['start','install','checkpoint-verify','restore-plan'].includes(action)) {
-    if(!confirm('Run '+action+'? This may interrupt BSM. Offline actions also require confirmation that BSM is not running outside its managed service.')) return;
+    const prompt=action==='upgrade-cancel'
+      ? 'Cancel upgrade #'+value.target+'? The supervisor may reselect and restart the original BSM version.'
+      : 'Run '+action+'? This may interrupt BSM. Offline actions also require confirmation that BSM is not running outside its managed service.';
+    if(!confirm(prompt)) return;
     if(currentSession!==session) return;
     value.confirmed=true;
   }
   if(action==='upgrade') {if(!confirm('Allow BSM database migrations? Recovery may require restoring a checkpoint and discarding newer data.')) return; if(currentSession!==session) return; value.accept_migrations=true;}
   if(['checkpoint-restore','upgrade-restore'].includes(action)) {if(!confirm('Replace saved data and discard changes made since this checkpoint?')) return; if(currentSession!==session) return; value.restore_data=true;}
   submitting=true; updateButtons();
-  try {const job=await request('actions',value); if(currentSession!==session) return; el('notice').textContent='Queued '+job.action+' · '+job.id; await refresh();} catch(error) {if(error.name!=='AbortError' && currentSession===session) el('error').textContent=error.message;} finally {if(currentSession===session) {submitting=false;updateButtons();}}
+  try {const job=await request('actions',value); if(currentSession!==session) return; el('notice').textContent='Queued '+job.action+' · '+job.id;
+    if(action==='upgrade' || action.startsWith('upgrade-')) {
+      followedJob=job.id;
+      clearUpgrade();
+    }
+    await refresh();} catch(error) {if(error.name!=='AbortError' && currentSession===session) el('error').textContent=error.message;} finally {if(currentSession===session) {submitting=false;updateButtons();}}
 });
 setInterval(refresh,3000);
 
@@ -158,3 +279,72 @@ el('operation-acknowledge').onclick=()=>recoveryRequest(async()=>{const id=el('r
 el('history-more').onclick=()=>recoveryRequest(async()=>{const report=await request('history'+(olderBefore?'?before='+olderBefore:''));const section=document.createElement('div');renderOperationRows(report.operations,section);el('older-history').append(section);olderBefore=report.next_before;el('history-more').hidden=!olderBefore;});
 el('update-inspect').onclick=()=>recoveryRequest(async()=>{inspectedUpdate=await request('recovery/update');el('update-report').textContent=JSON.stringify(inspectedUpdate,null,2);});
 el('update-cancel').onclick=()=>recoveryRequest(async()=>{if(!inspectedUpdate?.cancellable)throw new Error('Inspect the pending update first. Only an uninstalled preparing update can be cancelled.');if(!confirm(inspectedUpdate.effect))return;await request('recovery/update/cancel',{confirmed:true,digest:inspectedUpdate.digest});inspectedUpdate=null;el('update-report').textContent='Update plan archived. No rollback or service restart performed.';await refresh();});
+
+function clearUpgrade() {
+  upgradeInspection++;
+  inspectedUpgrade=null;
+  el('upgrade-summary').textContent='';
+  el('upgrade-steps').replaceChildren();
+  el('upgrade-recovery').hidden=true;
+}
+function renderUpgrades(workflows) {
+  const select=el('upgrade-history'), previous=select.value;
+  const upgrades=workflows.filter(item=>item.kind==='upgrade').map(item=>({...item,id:String(item.id)}));
+  const ordered=[...upgrades.filter(item=>item.state==='running'), ...upgrades.filter(item=>item.state!=='running')];
+  options('upgrade-history',ordered,item=>'#'+item.id+' · '+(item.state==='running'?'Pending':item.state)+(item.detail?' · '+item.detail:''));
+  el('upgrade-inspect').disabled=!ordered.length;
+  if(previous!==select.value || (inspectedUpgrade && !upgrades.some(item=>
+    item.id===select.value && item.state===inspectedUpgrade.workflow.state))) clearUpgrade();
+}
+el('upgrade-history').onchange=clearUpgrade;
+el('upgrade-inspect').onclick=()=>recoveryRequest(async()=>{
+  const id=el('upgrade-history').value;
+  if(!id) return;
+  clearUpgrade();
+  const inspection=upgradeInspection;
+  const report=await request('upgrades/'+id);
+  if(inspection!==upgradeInspection || el('upgrade-history').value!==id) return;
+  inspectedUpgrade=report;
+  const versions=report.original_version && report.target_version
+    ? report.original_version+' → '+report.target_version : '';
+  el('upgrade-summary').textContent=[
+    'Upgrade #'+id, versions, report.phase || 'No upgrade plan recorded',
+    report.workflow.detail || report.last_error, report.checkpoint_id && 'Checkpoint '+report.checkpoint_id,
+  ].filter(Boolean).join(' · ');
+  renderOperationRows(report.steps,el('upgrade-steps'));
+  el('upgrade-recovery').hidden=!report.recovery.length;
+  for(const action of ['resume','cancel','restore']) {
+    el('upgrade-'+action).hidden=!report.recovery.includes(action);
+  }
+  updateButtons();
+});
+
+function clearJournal() {
+  journalLoad++;
+  el('service-log-output').textContent='';
+  el('service-logs-status').textContent='';
+  el('service-logs-reload').disabled=false;
+}
+async function loadJournal() {
+  clearJournal();
+  const load=journalLoad;
+  el('service-logs-reload').disabled=true;
+  el('service-logs-status').textContent='Loading recent logs…';
+  try {
+    const report=await request('logs/'+el('service-log-source').value);
+    if(load!==journalLoad) return;
+    el('service-log-output').textContent=report.output;
+    el('service-logs-status').textContent=report.output?'Showing recent journal entries.':'No journal entries found.';
+  } catch(error) {
+    if(load===journalLoad && error.name!=='AbortError') el('service-logs-status').textContent=error.message;
+  } finally {
+    if(load===journalLoad) el('service-logs-reload').disabled=false;
+  }
+}
+el('service-log-source').onchange=loadJournal;
+el('service-logs-reload').onclick=loadJournal;
+el('service-logs-open').onclick=()=>{
+  el('service-logs-panel').scrollIntoView?.({block:'nearest'});
+  el('service-log-source').focus();
+  return loadJournal();
+};

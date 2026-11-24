@@ -89,17 +89,25 @@ separate from confirming maintenance. Review a restore plan before restoring;
 restoration replaces saved data and discards newer changes. Binary downgrade is
 not an automatic recovery action.
 
-Console jobs have durable IDs and private logs beneath `state_dir/web-jobs`.
-Expand a console job to read the last 32 KiB of captured output, including a
-restore plan. Jobs are listed newest first. Captured output is capped at 8 MiB;
-use `journal-prune` for completed-log retention.
-The CLI operation journal remains authoritative for interrupted service/data
-changes. After inspecting status/history and completing any required upgrade or
-restore recovery, acknowledge an interrupted console job:
+Under **BSM Upgrades** on Overview, select an upgrade from history and choose
+**Inspect Upgrade**. The report shows the original and target versions, the
+recorded phase, the checkpoint, and individual workflow steps. Pending upgrades
+offer recovery actions based on the journal. You can cancel before the target
+version has attempted startup. After that point, recovery requires resuming
+the upgrade or explicitly restoring its checkpoint. Recovery uses the same
+workflow lock and checks as the CLI.
 
-```bash
-bsm-supervisor web-job-acknowledge JOB_ID --service-checked
-```
+Choose **View logs** on the BSM service card to open the service journal. You can
+switch between the BSM service and the supervisor console and reload up to 200
+recent entries while maintenance is running.
+
+Console jobs have durable IDs and private logs beneath `state_dir/web-jobs`.
+Expand a console job to read the last 32 KiB of captured output. Jobs are listed
+newest first and captured output is capped at 8 MiB. Use `journal-prune` for
+completed-log retention. If a console job was interrupted, inspect its output,
+the service state, and the operation or upgrade history. Choose **Acknowledge
+after inspection** on the job to clear its console record, then use the relevant
+recovery action for the underlying workflow.
 
 Live process leases prevent acknowledgement while a console child is executing.
 The `web_job_timeout` configuration value limits each command to 3600 seconds by
