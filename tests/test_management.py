@@ -269,6 +269,50 @@ class ManagementTests(unittest.TestCase):
         )
         self.assertEqual(self.request("/api/actions", "POST", raw=b"x" * 8193)[0], 400)
 
+    def test_service_wait_stop_and_same_version_release_flags(self):
+        self.assertEqual(
+            web.arguments({"action": "start", "wait": True}), ["start", "--wait"]
+        )
+        self.assertEqual(
+            web.arguments({"action": "restart", "confirmed": True, "wait": True}),
+            ["restart", "--wait"],
+        )
+        self.assertEqual(web.arguments({"action": "stop", "confirmed": True}), ["stop"])
+        self.assertIn(
+            "--allow-same-version",
+            web.arguments(
+                {
+                    "action": "upgrade",
+                    "target": "4.1.0",
+                    "confirmed": True,
+                    "accept_migrations": True,
+                    "allow_same": True,
+                }
+            ),
+        )
+        with self.assertRaises(ValueError):
+            web.arguments({"action": "start", "wait": "true"})
+
+    def test_release_picker_is_authenticated_and_independent_of_the_job_queue(self):
+        with (
+            self.console.lock,
+            patch(
+                "bsm_supervisor.web.releases.discover",
+                return_value=[Release("4.1.0"), Release("4.2.0b1")],
+            ) as discover,
+        ):
+            self.assertEqual(self.request("/api/releases", authenticated=False)[0], 401)
+            discover.assert_not_called()
+            status, body, _ = self.request("/api/releases")
+            self.assertEqual(status, 200)
+            self.assertEqual(
+                json.loads(body),
+                [
+                    {"version": "4.1.0", "prerelease": False},
+                    {"version": "4.2.0b1", "prerelease": True},
+                ],
+            )
+
     def test_web_git_install_and_coordinated_git_upgrade_arguments(self):
         value = {
             "action": "install-git",

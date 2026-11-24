@@ -219,3 +219,28 @@ test('a failed Git install links to its operation and confirmed build cleanup', 
   await page.locator('#archive-failed-installation').click();
   expect((await archive).postDataJSON()).toEqual({action:'installation-archive-failed',target:build,confirmed:true});
 });
+
+test('release picker fills the upgrade target and readiness can be part of startup', async ({page}) => {
+  await page.route('**/api/releases', route => route.fulfill({json:[
+    {version:'4.1.0',prerelease:false}, {version:'4.2.0b1',prerelease:true},
+  ]}));
+  await page.route('**/api/actions', route => route.fulfill({status:202,json:{
+    id:'e'.repeat(32),action:route.request().postDataJSON().action,
+  }}));
+  await login(page);
+  await page.locator('#release-browser summary').click();
+  await page.locator('#reload-releases').click();
+  await page.locator('#available-release').selectOption('4.2.0b1');
+  await expect(page.locator('#version')).toHaveValue('4.2.0b1');
+  await page.locator('#release-allow-same').check();
+  page.on('dialog', dialog => dialog.accept());
+  let submitted = page.waitForRequest(request => request.url().endsWith('/api/actions'));
+  await page.locator('[data-action="upgrade"]').click();
+  expect((await submitted).postDataJSON()).toEqual({
+    action:'upgrade',target:'4.2.0b1',allow_same:true,confirmed:true,accept_migrations:true,
+  });
+  await page.locator('#service-wait').check();
+  submitted = page.waitForRequest(request => request.url().endsWith('/api/actions'));
+  await page.locator('[data-action="start"]').click();
+  expect((await submitted).postDataJSON()).toEqual({action:'start',wait:true});
+});

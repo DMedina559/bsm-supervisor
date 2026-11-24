@@ -103,6 +103,19 @@ the source build. Choose the resulting installation to inspect its build log,
 select it while BSM is stopped, or run a coordinated Git upgrade. A separate
 checkbox allows upgrading between builds that report the same package version.
 
+**Browse BSM Releases** lists compatible stable and prerelease builds from PyPI.
+Selecting a version fills the install and upgrade field. The PyPI upgrade form
+also has a same-version repair option. Use **Register Existing Installation** to
+inventory a virtual environment directly inside the configured installations
+directory and select it separately while BSM is stopped.
+
+Use **Wait for BSM readiness** to include authenticated application readiness
+in start and restart jobs. If **Graceful Stop** fails, inspect and acknowledge
+its interrupted operation before using **Stop Service** to stop BSM through
+systemd. **Repair Permissions** appears in the Supervisor diagnostics controls
+and beside applicable access findings. Stop BSM and other writers before
+repairing ownership and permissions on the configured data and configuration.
+
 Failed jobs link to their recorded operation and, when available, their upgrade
 workflow. The operation and upgrade inspectors link to the target build log.
 If the journal identifies an unregistered failed build, use **Move Failed Build

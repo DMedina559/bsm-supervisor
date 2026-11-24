@@ -11,11 +11,12 @@ from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
 from . import (
     checkpoints,
     console_transfers,
+    data_permissions,
     diagnostics,
     events,
     operations,
@@ -78,6 +79,8 @@ SCHEMAS = {
     "health": set(),
     "doctor": set(),
     "unit-refresh": set(),
+    "permissions-repair": set(),
+    "register": {"installation_id", "version"},
     "service-logs": set(),
 }
 READ_ONLY = {"supervisor-check", "health", "doctor", "service-logs"}
@@ -118,6 +121,24 @@ def validate(value: dict) -> dict:
         or "\x00" in value["passphrase"]
     ):
         raise ValueError("Encryption passwords must contain 16–4096 bytes")
+    if action == "register":
+        installation_id, version = value.get("installation_id"), value.get("version")
+        if (
+            not isinstance(installation_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", installation_id)
+            or installation_id == "current"
+        ):
+            raise ValueError("Enter the installation directory name")
+        if (
+            not isinstance(version, str)
+            or not 1 <= len(version) <= 128
+            or not version.strip()
+        ):
+            raise ValueError("Enter the installed BSM version")
+        try:
+            Version(version)
+        except InvalidVersion as error:
+            raise ValueError("Enter a valid BSM version") from error
     if action == "backup-restore" and not re.fullmatch(
         r"[0-9a-f]{64}", str(value.get("digest", ""))
     ):
@@ -318,6 +339,26 @@ def execute(config: Config, config_path: Path, store: Store, value: dict) -> dic
     """Execute only typed, fixed operations; secrets never enter result summaries."""
     validate(value)
     action = value["action"]
+    if action == "permissions-repair":
+        return data_permissions.repair(config, store)
+    if action == "register":
+        installation_id = value["installation_id"]
+        root = config.installations_dir.resolve()
+        target = root / installation_id
+        with store.lock():
+            store.require_idle()
+            if target.is_symlink() or not (target / "bin/python").is_file():
+                raise ValueError(
+                    "Choose an existing direct child with a Python executable"
+                )
+            if any(
+                row["id"] == installation_id or row["path"] == str(target)
+                for row in store.installations()
+            ):
+                raise ValueError("This installation is already registered")
+            normalized = str(Version(value["version"]))
+            store.register(installation_id, normalized, target, root)
+        return {"id": installation_id, "version": normalized}
     if action == "backup-restore":
         return restore_backup(config, store, value)
     if action == "backup-create":

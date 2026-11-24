@@ -28,6 +28,7 @@ from . import (
     console_transfers,
     events,
     recovery_console,
+    releases,
     scheduling,
     self_update,
 )
@@ -81,6 +82,7 @@ def arguments(value: dict) -> list[str]:
         "ref_kind",
         "allow_same",
         "trust_source",
+        "wait",
     }
     if value.keys() - fields or not isinstance(action, str):
         raise ValueError("Invalid action fields")
@@ -90,6 +92,7 @@ def arguments(value: dict) -> list[str]:
         "restore_data",
         "allow_same",
         "trust_source",
+        "wait",
     ):
         if flag in value and type(value[flag]) is not bool:
             raise ValueError("Confirmation fields must be booleans")
@@ -109,12 +112,10 @@ def arguments(value: dict) -> list[str]:
         return [action, target, "--offline-confirmed"]
     if action == "auto-start":
         return [action]
-    if action == "start":
-        return [action]
-    if action == "restart":
-        if value.get("confirmed") is not True:
+    if action in ("start", "restart"):
+        if action == "restart" and value.get("confirmed") is not True:
             raise ValueError("Confirm service downtime")
-        return [action]
+        return [action, *(["--wait"] if value.get("wait") else [])]
     if action == "installation-remove":
         target = value.get("target", "")
         if (
@@ -180,7 +181,13 @@ def arguments(value: dict) -> list[str]:
             *(["--allow-same-version"] if value.get("allow_same") else []),
         ]
     if action == "upgrade" and value.get("accept_migrations") is True:
-        return [action, target, "--maintenance-confirmed", "--accept-migrations"]
+        return [
+            action,
+            target,
+            "--maintenance-confirmed",
+            "--accept-migrations",
+            *(["--allow-same-version"] if value.get("allow_same") else []),
+        ]
     if action == "checkpoint-restore" and value.get("restore_data") is True:
         return [action, target, "--offline-confirmed", "--restore-data-confirmed"]
     if action == "acknowledge" and target.isdecimal():
@@ -555,6 +562,24 @@ class Console:
                         path.rsplit("/", 1)[1],
                     )
                     body = json.dumps(report).encode()
+                elif path == "/api/releases" and method == "GET":
+                    try:
+                        available = await asyncio.to_thread(releases.discover)
+                    except releases.ReleaseError:
+                        status, body = (
+                            503,
+                            b'{"error":"Could not load BSM releases from PyPI"}',
+                        )
+                    else:
+                        body = json.dumps(
+                            [
+                                {
+                                    **item.to_dict(),
+                                    "prerelease": Version(item.version).is_prerelease,
+                                }
+                                for item in available
+                            ]
+                        ).encode()
                 elif path == "/api/history" and method == "GET":
                     query = scope.get("query_string", b"").decode()
                     if query and not re.fullmatch(r"before=[1-9][0-9]{0,14}", query):

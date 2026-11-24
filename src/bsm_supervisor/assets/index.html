@@ -298,6 +298,7 @@
           </svg>
           Graceful stop
          </button>
+         <button class="action-button danger-button" id="stop-service" data-action="stop" type="button">Stop Service</button>
          <button class="action-button" data-action="restart">
           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
            <path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 2M5 16a8 8 0 0 0 13 2"></path>
@@ -318,6 +319,10 @@
           View logs
          </button>
         </div>
+        <label>
+         <input type="checkbox" id="service-wait"/>
+         Wait for BSM readiness on start and restart
+        </label>
        </article>
        <article class="panel">
         <div class="panel-heading section-heading">
@@ -350,6 +355,20 @@
           Upgrade
          </button>
         </div>
+        <label>
+         <input id="release-allow-same" type="checkbox"/>
+         Allow a PyPI upgrade with the same package version
+        </label>
+        <details class="row" id="release-browser">
+         <summary>Browse BSM Releases</summary>
+         <div class="activity-toolbar">
+          <label>Compatible Release
+           <select class="form-input" id="available-release" disabled></select>
+          </label>
+          <button class="action-button" id="reload-releases" data-recovery-ack type="button">Load Releases</button>
+         </div>
+         <p id="release-status" role="status"></p>
+        </details>
         <details class="row">
          <summary>Install From Git</summary>
          <div class="activity-toolbar">
@@ -380,6 +399,21 @@
          <input id="upgrade-same-version" type="checkbox"/>
          Allow a Git upgrade with the same package version
         </label>
+        <details class="row">
+         <summary>Register Existing Installation</summary>
+         <form id="register-installation">
+          <div class="activity-toolbar">
+           <label>Installation Directory Name
+            <input id="register-installation-id" class="form-input" required maxlength="128" autocomplete="off" spellcheck="false"/>
+           </label>
+           <label>BSM Version
+            <input id="register-installation-version" class="form-input" required maxlength="128" autocomplete="off" spellcheck="false"/>
+           </label>
+          </div>
+          <p class="hint">Enter the name of an existing virtual environment directly inside the installations directory.</p>
+          <button class="action-button" type="submit">Register Installation</button>
+         </form>
+        </details>
         <section id="installation-inspector" hidden aria-label="Installation details">
          <p id="installation-summary" role="status"></p>
          <pre class="log" id="installation-log" tabindex="0" aria-label="Installation build log"></pre>
@@ -1113,6 +1147,7 @@
          <button class="action-button" data-admin-action="unit-refresh">
           Refresh managed unit
          </button>
+         <button class="action-button" id="repair-permissions" data-admin-action="permissions-repair" type="button">Repair Permissions</button>
          <button class="action-button" id="diagnostics-download">
           Download last report
          </button>
@@ -1150,6 +1185,7 @@
         </h2>
        </div>
        <div class="output-actions">
+        <button class="action-button" id="repair-from-diagnostics" data-admin-action="permissions-repair" type="button" hidden>Repair Permissions</button>
         <button class="action-button" id="output-copy" type="button">Copy</button>
         <button class="action-button" id="output-clear" type="button">Clear</button>
        </div>

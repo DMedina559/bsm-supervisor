@@ -13,6 +13,12 @@ function lockConsole() {
   closeInstallation();
   el('bsm-git-ref').value='';
   el('upgrade-same-version').checked=false;
+  el('release-allow-same').checked=false;
+  el('service-wait').checked=false;
+  el('available-release').replaceChildren();
+  el('available-release').disabled=true;
+  el('release-status').textContent='';
+  el('reload-releases').disabled=false;
   if(document.body)document.body.dataset.connected='false';
   el('console-connection').textContent='Locked';el('connection-chip').dataset.state='locked';
   for(const id of ['sidebar-version','sidebar-installation','summary-service','summary-version','summary-backups','summary-attention','summary-service-detail','summary-version-detail','summary-backups-detail','summary-attention-detail'])el(id).textContent='';
@@ -60,7 +66,7 @@ function options(id, items, label) {
   if (items.some(item => item.id === previous)) select.value = previous;
 }
 function actionLabel(action) {
-  return ({'upgrade':'Upgrade BSM','install-git':'Install BSM From Git','upgrade-installation':'Upgrade BSM to Git Build','installation-archive-failed':'Move Failed BSM Build Aside','upgrade-cancel':'Cancel BSM Upgrade','upgrade-resume':'Resume BSM Upgrade','upgrade-restore':'Restore Upgrade Checkpoint','service:start':'Start BSM','service:stop':'Stop BSM','service:graceful-stop':'Graceful stop','service:restart':'Restart BSM','service:unit-refresh':'Refresh managed unit','supervisor:install':'Install supervisor','supervisor:update-preflight':'Supervisor update checks'})[action] || String(action).replaceAll(':',' · ').replaceAll('-',' ');
+  return ({'upgrade':'Upgrade BSM','stop':'Stop BSM Service','permissions-repair':'Repair BSM Permissions','install-git':'Install BSM From Git','upgrade-installation':'Upgrade BSM to Git Build','installation-archive-failed':'Move Failed BSM Build Aside','upgrade-cancel':'Cancel BSM Upgrade','upgrade-resume':'Resume BSM Upgrade','upgrade-restore':'Restore Upgrade Checkpoint','service:start':'Start BSM','service:stop':'Stop BSM','service:graceful-stop':'Graceful stop','service:restart':'Restart BSM','service:unit-refresh':'Refresh managed unit','supervisor:install':'Install supervisor','supervisor:update-preflight':'Supervisor update checks'})[action] || String(action).replaceAll(':',' · ').replaceAll('-',' ');
 }
 function renderOperationRows(items, container=el('operations')) {
   if(!items.length){container.textContent='No operations recorded. Service and maintenance history will appear here.';return;}
@@ -226,6 +232,7 @@ function renderJobLinks(row,item,state,report={}) {
     return inspectOperation();
   });
   else link('Review Operation History',()=>focusOverview('operations'));
+  if(item.action==='graceful-stop') link('Go to Service Controls',()=>focusOverview('stop-service'));
 }
 function renderWorkspace(state) {
   const service=state.service||{},selected=state.selection,checkpoints=state.checkpoints||[];
@@ -348,7 +355,11 @@ document.querySelectorAll('[data-action]').forEach(button=>button.onclick=async(
   const currentSession=session;
   el('error').textContent='';
   const action=button.dataset.action, value={action};
-  if(['install','upgrade'].includes(action)) value.target=el('version').value.trim();
+  if(['install','upgrade'].includes(action)) {
+    value.target=el('version').value.trim();
+    if(action==='upgrade' && el('release-allow-same').checked) value.allow_same=true;
+  }
+  else if(['start','restart'].includes(action) && el('service-wait').checked) value.wait=true;
   else if(action==='install-git') {
     value.target=el('bsm-git-ref').value.trim();
     value.ref_kind=el('bsm-git-kind').value;
@@ -374,6 +385,8 @@ document.querySelectorAll('[data-action]').forEach(button=>button.onclick=async(
   if(!['start','install','install-git','checkpoint-verify','restore-plan'].includes(action)) {
     const prompt=action==='upgrade-cancel'
       ? 'Cancel upgrade #'+value.target+'? The supervisor may reselect and restart the original BSM version.'
+      : action==='stop'
+        ? 'Stop BSM through systemd? If a failed graceful stop is pending, inspect and acknowledge its operation first.'
       : action==='installation-archive-failed'
         ? 'Move '+value.target+' aside so it can be rebuilt? Stop BSM first. The original directory will be kept.'
         : action==='installation-remove'
@@ -388,7 +401,7 @@ document.querySelectorAll('[data-action]').forEach(button=>button.onclick=async(
   submitting=true; updateButtons();
   try {const job=await request('actions',value); if(currentSession!==session) return; el('notice').textContent='Queued '+job.action+' · '+job.id;
     if(action==='upgrade' || action.startsWith('upgrade-')) clearUpgrade();
-    if(action.startsWith('upgrade') || action.startsWith('install')) followedJob=job.id;
+    if(action.startsWith('upgrade') || action.startsWith('install') || ['start','restart','graceful-stop','stop'].includes(action)) followedJob=job.id;
     if(action.startsWith('installation-')) closeInstallation();
     await refresh();} catch(error) {if(error.name!=='AbortError' && currentSession===session) el('error').textContent=error.message;} finally {if(currentSession===session) {submitting=false;updateButtons();}}
 });
@@ -473,4 +486,39 @@ el('service-logs-open').onclick=()=>{
   el('service-logs-panel').scrollIntoView?.({block:'nearest'});
   el('service-log-source').focus();
   return loadJournal();
+};
+
+el('reload-releases').onclick=async()=>{
+  const activeSession=session;
+  const button=el('reload-releases');
+  button.disabled=true;
+  el('release-status').textContent='Loading compatible releases…';
+  try {
+    const releases=await request('releases');
+    const selector=el('available-release');
+    const placeholder=document.createElement('option');
+    placeholder.value='';
+    placeholder.textContent='Choose a version';
+    selector.replaceChildren(placeholder);
+    for(const [label,prerelease] of [['Stable',false],['Prerelease and development',true]]) {
+      const group=document.createElement('optgroup');
+      group.label=label;
+      for(const release of releases.filter(item=>item.prerelease===prerelease)) {
+        const option=document.createElement('option');
+        option.value=release.version;
+        option.textContent=release.version;
+        group.append(option);
+      }
+      if(group.children.length) selector.append(group);
+    }
+    selector.disabled=!releases.length;
+    el('release-status').textContent=releases.length?'':'No compatible releases found.';
+  } catch(error) {
+    if(activeSession===session && error.name!=='AbortError') el('release-status').textContent=error.message;
+  } finally {
+    if(activeSession===session) button.disabled=false;
+  }
+};
+el('available-release').onchange=()=>{
+  if(el('available-release').value) el('version').value=el('available-release').value;
 };
