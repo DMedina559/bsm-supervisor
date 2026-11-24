@@ -23,16 +23,19 @@ from packaging.version import InvalidVersion, Version
 from . import (
     autostart,
     checkpoints,
+    cleanup,
     console_admin,
     console_transfers,
     events,
     recovery_console,
+    releases,
     scheduling,
     self_update,
 )
 from .activation import selection
 from .checkpoint_files import read_json, write_json
 from .config import Config
+from .git_sources import validate_ref
 from .launchguard import boot_identity, controller_pid, process_generation
 from .service import service_backend
 from .store import BusyError, Store
@@ -70,20 +73,49 @@ def arguments(value: dict) -> list[str]:
     if isinstance(action, str) and action in console_admin.SCHEMAS:
         console_admin.validate(value)
         return ["console-task"]
-    fields = {"action", "target", "confirmed", "accept_migrations", "restore_data"}
+    fields = {
+        "action",
+        "target",
+        "confirmed",
+        "accept_migrations",
+        "restore_data",
+        "ref_kind",
+        "allow_same",
+        "trust_source",
+        "wait",
+    }
     if value.keys() - fields or not isinstance(action, str):
         raise ValueError("Invalid action fields")
-    for flag in ("confirmed", "accept_migrations", "restore_data"):
+    for flag in (
+        "confirmed",
+        "accept_migrations",
+        "restore_data",
+        "allow_same",
+        "trust_source",
+        "wait",
+    ):
         if flag in value and type(value[flag]) is not bool:
             raise ValueError("Confirmation fields must be booleans")
+    if action == "install-git":
+        reference, kind = value.get("target"), value.get("ref_kind")
+        if not isinstance(reference, str) or kind not in ("branch", "tag", "commit"):
+            raise ValueError("Choose a Git reference and enter its name or commit ID")
+        validate_ref(kind, reference)
+        if value.get("trust_source") is not True:
+            raise ValueError("Confirm trust in the upstream source build")
+        return [action, "--" + kind, reference, "--trust-source-build"]
+    if action == "installation-archive-failed":
+        target = value.get("target")
+        if not isinstance(target, str) or value.get("confirmed") is not True:
+            raise ValueError("Confirm moving the failed installation aside")
+        cleanup.build_id(target)
+        return [action, target, "--offline-confirmed"]
     if action == "auto-start":
         return [action]
-    if action == "start":
-        return [action]
-    if action == "restart":
-        if value.get("confirmed") is not True:
+    if action in ("start", "restart"):
+        if action == "restart" and value.get("confirmed") is not True:
             raise ValueError("Confirm service downtime")
-        return [action]
+        return [action, *(["--wait"] if value.get("wait") else [])]
     if action == "installation-remove":
         target = value.get("target", "")
         if (
@@ -137,8 +169,25 @@ def arguments(value: dict) -> list[str]:
         raise ValueError("Explicit confirmation is required")
     if action == "activate":
         return [action, target, "--offline-confirmed"]
+    if action == "upgrade-installation" and value.get("accept_migrations") is True:
+        if not re.fullmatch(r"git-[0-9a-f]{40}", target):
+            raise ValueError("Select a registered Git installation")
+        return [
+            "upgrade",
+            "--installation",
+            target,
+            "--maintenance-confirmed",
+            "--accept-migrations",
+            *(["--allow-same-version"] if value.get("allow_same") else []),
+        ]
     if action == "upgrade" and value.get("accept_migrations") is True:
-        return [action, target, "--maintenance-confirmed", "--accept-migrations"]
+        return [
+            action,
+            target,
+            "--maintenance-confirmed",
+            "--accept-migrations",
+            *(["--allow-same-version"] if value.get("allow_same") else []),
+        ]
     if action == "checkpoint-restore" and value.get("restore_data") is True:
         return [action, target, "--offline-confirmed", "--restore-data-confirmed"]
     if action == "acknowledge" and target.isdecimal():
@@ -257,8 +306,8 @@ class Console:
                 for path in self.jobs.glob("*.json")
             ):
                 raise BusyError(
-                    "An interrupted console job requires web-job-acknowledge after "
-                    "checking history and service state"
+                    "Inspect service state and history, then acknowledge the "
+                    "interrupted job under Console jobs"
                 )
             job = {
                 "id": uuid4().hex,
@@ -266,6 +315,21 @@ class Console:
                 "state": "running",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
+            if value["action"] in {
+                "install",
+                "install-git",
+                "installation-remove",
+                "installation-archive-failed",
+                "upgrade-installation",
+                "upgrade-cancel",
+                "upgrade-resume",
+                "upgrade-restore",
+            }:
+                job["target"] = (
+                    args[1] if value["action"] == "install" else value.get("target")
+                )
+                if value["action"] == "install-git":
+                    job["ref_kind"] = value.get("ref_kind")
             lease = os.open(
                 self.jobs / (job["id"] + ".lock"),
                 os.O_RDWR | os.O_CREAT | os.O_EXCL,
@@ -305,12 +369,14 @@ class Console:
                     [
                         sys.executable,
                         "-I",
+                        "-u",
                         "-m",
                         "bsm_supervisor",
                         "--config",
                         str(self.config_path),
                         *args,
                     ],
+                    env={**os.environ, "BSM_SUPERVISOR_CONSOLE_JOB": job["id"]},
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
@@ -366,8 +432,15 @@ class Console:
         except BaseException:
             if process is not None:
                 try:
-                    if job["action"] == "supervisor-update":
-                        # Let the updater terminate its separately grouped installer.
+                    if job["action"] in {
+                        "supervisor-update",
+                        "install",
+                        "install-git",
+                        "upgrade",
+                        "upgrade-installation",
+                        "upgrade-resume",
+                    }:
+                        # Let the controller terminate its separately grouped installer.
                         os.killpg(process.pid, signal.SIGINT)
                         try:
                             process.wait(timeout=10)
@@ -391,6 +464,21 @@ class Console:
             finally:
                 os.close(lease)
                 self.lock.release()
+
+    def job_output(self, job_id: str) -> dict:
+        log = self.jobs / (job_id + ".log")
+        with log.open("rb") as stream:
+            stream.seek(max(0, os.fstat(stream.fileno()).st_size - 32768))
+            output = stream.read(32768).decode("utf-8", errors="replace")
+        with Store(self.config.state_dir).connect() as db:
+            operation = db.execute(
+                "SELECT operations.id AS operation_id, workflow_id FROM operations "
+                "JOIN events ON events.operation_id = operations.id "
+                "WHERE events.state = 'running' AND events.detail = ? "
+                "ORDER BY operations.id DESC LIMIT 1",
+                ("Console job: " + job_id,),
+            ).fetchone()
+        return {"output": output, **(dict(operation) if operation else {})}
 
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] != "http":
@@ -461,6 +549,37 @@ class Console:
                             path.rsplit("/", 1)[1],
                         )
                     ).encode()
+                elif (
+                    re.fullmatch(
+                        r"/api/installations/[A-Za-z0-9][A-Za-z0-9.!_+-]{0,127}", path
+                    )
+                    and method == "GET"
+                ):
+                    report = await asyncio.to_thread(
+                        cleanup.inspect,
+                        self.config,
+                        Store(self.config.state_dir),
+                        path.rsplit("/", 1)[1],
+                    )
+                    body = json.dumps(report).encode()
+                elif path == "/api/releases" and method == "GET":
+                    try:
+                        available = await asyncio.to_thread(releases.discover)
+                    except releases.ReleaseError:
+                        status, body = (
+                            503,
+                            b'{"error":"Could not load BSM releases from PyPI"}',
+                        )
+                    else:
+                        body = json.dumps(
+                            [
+                                {
+                                    **item.to_dict(),
+                                    "prerelease": Version(item.version).is_prerelease,
+                                }
+                                for item in available
+                            ]
+                        ).encode()
                 elif path == "/api/history" and method == "GET":
                     query = scope.get("query_string", b"").decode()
                     if query and not re.fullmatch(r"before=[1-9][0-9]{0,14}", query):
@@ -489,6 +608,35 @@ class Console:
                             int(path.rsplit("/", 1)[1]),
                         )
                     ).encode()
+                elif (
+                    re.fullmatch(r"/api/upgrades/[1-9][0-9]{0,14}", path)
+                    and method == "GET"
+                ):
+                    body = json.dumps(
+                        await asyncio.to_thread(
+                            recovery_console.inspect_upgrade,
+                            self.config,
+                            Store(self.config.state_dir),
+                            int(path.rsplit("/", 1)[1]),
+                        )
+                    ).encode()
+                elif path in ("/api/logs/bsm", "/api/logs/console") and method == "GET":
+                    unit = (
+                        self.config.service_unit
+                        if path.endswith("/bsm")
+                        else "bsm-supervisor-console.service"
+                    )
+                    try:
+                        output = await asyncio.to_thread(
+                            console_admin.service_logs, unit
+                        )
+                    except (OSError, subprocess.SubprocessError):
+                        status, body = (
+                            503,
+                            b'{"error":"Unable to read the service journal"}',
+                        )
+                    else:
+                        body = json.dumps({"output": output}).encode()
                 elif path == "/api/recovery/update" and method == "GET":
                     body = json.dumps(
                         await asyncio.to_thread(
@@ -510,17 +658,11 @@ class Console:
                         )
                     ).encode()
                 elif re.fullmatch(r"/api/jobs/[0-9a-f]{32}", path) and method == "GET":
-                    log = self.jobs / (path.rsplit("/", 1)[1] + ".log")
                     try:
-                        with log.open("rb") as stream:
-                            stream.seek(max(0, log.stat().st_size - 32768))
-                            body = json.dumps(
-                                {
-                                    "output": stream.read(32768).decode(
-                                        "utf-8", errors="replace"
-                                    )
-                                }
-                            ).encode()
+                        report = await asyncio.to_thread(
+                            self.job_output, path.rsplit("/", 1)[1]
+                        )
+                        body = json.dumps(report).encode()
                     except FileNotFoundError:
                         status, body = 404, b'{"error":"Job log not found"}'
                 elif (

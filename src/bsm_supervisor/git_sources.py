@@ -3,7 +3,6 @@
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -67,7 +66,7 @@ def validate_ref(kind: str, reference: str) -> str:
 def install_git(config: Config, store: Store, kind: str, reference: str) -> dict:
     """Resolve once, build that commit, and register a permanent environment."""
     requested = validate_ref(kind, reference)
-    with store.mutation("install-git:" + kind + ":" + reference):
+    with store.mutation("install-git:" + kind + ":" + reference) as operation_id:
         builds = config.state_dir / "builds"
         builds.mkdir(mode=0o700, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=builds) as temporary:
@@ -84,56 +83,58 @@ def install_git(config: Config, store: Store, kind: str, reference: str) -> dict
             git(["fetch", "--tags", "--no-recurse-submodules", UPSTREAM], checkout)
             target = config.installations_dir.resolve() / ("git-" + commit)
             create_root(target.parent)
+            store.note(operation_id, "Installation target: " + str(target))
+            if target.exists() or target.is_symlink():
+                raise ReleaseError(
+                    "This Git commit already has an installation directory"
+                )
             target.mkdir(mode=0o755)
-            try:
-                target.chmod(0o755)
-                logs = config.state_dir / "logs"
-                logs.mkdir(mode=0o700, exist_ok=True)
-                log = logs / (target.name + ".log")
-                run_command([sys.executable, "-I", "-m", "venv", str(target)], log)
-                python = str(target / "bin/python")
-                run_command(
-                    [
-                        python,
-                        "-I",
-                        "-m",
-                        "pip",
-                        "--isolated",
-                        "install",
-                        "--no-input",
-                        "--no-cache-dir",
-                        "--index-url",
-                        INDEX,
-                        str(checkout),
-                    ],
-                    log,
-                )
-                service_readable(target)
-                run_command([python, "-I", "-m", "pip", "check"], log)
-                metadata = target / "verified-version.json"
-                script = (
-                    "import json; from importlib.metadata import version; "
-                    f"open({str(metadata)!r}, 'x').write("
-                    f"json.dumps(version({PACKAGE!r})))"
-                )
-                run_command([python, "-I", "-c", script], log)
-                version = str(Version(json.loads(metadata.read_text())))
-                metadata.unlink()
-                if not (target / "bin/bedrock-server-manager").is_file():
-                    raise ReleaseError("Installed package has no BSM entry point")
-                manifest = dict(
-                    source="git",
-                    upstream=UPSTREAM,
-                    ref_kind=kind,
-                    reference=reference,
-                    commit=commit,
-                    version=version,
-                    path=str(target),
-                    python=sys.version,
-                )
-                write_json(target / "supervisor-installation.json", manifest)
-                store.add_installation(target.name, version, target)
-                return manifest
-            except Exception:
-                shutil.rmtree(target, ignore_errors=True)
-                raise
+            store.note(operation_id, "Creating virtual environment: " + str(target))
+            target.chmod(0o755)
+            logs = config.state_dir / "logs"
+            logs.mkdir(mode=0o700, exist_ok=True)
+            log = logs / (target.name + ".log")
+            run_command([sys.executable, "-I", "-m", "venv", str(target)], log)
+            python = str(target / "bin/python")
+            run_command(
+                [
+                    python,
+                    "-I",
+                    "-m",
+                    "pip",
+                    "--isolated",
+                    "install",
+                    "--no-input",
+                    "--no-cache-dir",
+                    "--index-url",
+                    INDEX,
+                    str(checkout),
+                ],
+                log,
+            )
+            service_readable(target)
+            run_command([python, "-I", "-m", "pip", "check"], log)
+            metadata = target / "verified-version.json"
+            script = (
+                "import json; from importlib.metadata import version; "
+                f"open({str(metadata)!r}, 'x').write("
+                f"json.dumps(version({PACKAGE!r})))"
+            )
+            run_command([python, "-I", "-c", script], log)
+            version = str(Version(json.loads(metadata.read_text())))
+            metadata.unlink()
+            if not (target / "bin/bedrock-server-manager").is_file():
+                raise ReleaseError("Installed package has no BSM entry point")
+            manifest = dict(
+                source="git",
+                upstream=UPSTREAM,
+                ref_kind=kind,
+                reference=reference,
+                commit=commit,
+                version=version,
+                path=str(target),
+                python=sys.version,
+            )
+            write_json(target / "supervisor-installation.json", manifest)
+            store.add_installation(target.name, version, target)
+            return manifest

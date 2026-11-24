@@ -89,17 +89,51 @@ separate from confirming maintenance. Review a restore plan before restoring;
 restoration replaces saved data and discards newer changes. Binary downgrade is
 not an automatic recovery action.
 
-Console jobs have durable IDs and private logs beneath `state_dir/web-jobs`.
-Expand a console job to read the last 32 KiB of captured output, including a
-restore plan. Jobs are listed newest first. Captured output is capped at 8 MiB;
-use `journal-prune` for completed-log retention.
-The CLI operation journal remains authoritative for interrupted service/data
-changes. After inspecting status/history and completing any required upgrade or
-restore recovery, acknowledge an interrupted console job:
+Under **BSM Upgrades** on Overview, select an upgrade from history and choose
+**Inspect Upgrade**. The report shows the original and target versions, the
+recorded phase, the checkpoint, and individual workflow steps. Pending upgrades
+offer recovery actions based on the journal. You can cancel before the target
+version has attempted startup. After that point, recovery requires resuming
+the upgrade or explicitly restoring its checkpoint. Recovery uses the same
+workflow lock and checks as the CLI.
 
-```bash
-bsm-supervisor web-job-acknowledge JOB_ID --service-checked
-```
+Under **Version Management**, expand **Install From Git** and choose a branch,
+tag, or full commit SHA from the official BSM repository. Confirm that you trust
+the source build. Choose the resulting installation to inspect its build log,
+select it while BSM is stopped, or run a coordinated Git upgrade. A separate
+checkbox allows upgrading between builds that report the same package version.
+
+**Browse BSM Releases** lists compatible stable and prerelease builds from PyPI.
+Selecting a version fills the install and upgrade field. The PyPI upgrade form
+also has a same-version repair option. Use **Register Existing Installation** to
+inventory a virtual environment directly inside the configured installations
+directory and select it separately while BSM is stopped.
+
+Use **Wait for BSM readiness** to include authenticated application readiness
+in start and restart jobs. If **Graceful Stop** fails, inspect and acknowledge
+its interrupted operation before using **Stop Service** to stop BSM through
+systemd. **Repair Permissions** appears in the Supervisor diagnostics controls
+and beside applicable access findings. Stop BSM and other writers before
+repairing ownership and permissions on the configured data and configuration.
+
+Failed jobs link to their recorded operation and, when available, their upgrade
+workflow. The operation and upgrade inspectors link to the target build log.
+If the journal identifies an unregistered failed build, use **Move Failed Build
+Aside** after resolving any pending workflow and stopping BSM. This preserves the
+directory under a hidden name and frees the original path for a fresh build.
+Registered installations use the existing protected removal action.
+
+Choose **View logs** on the BSM service card to open the service journal. You can
+switch between the BSM service and the supervisor console and reload up to 200
+recent entries while maintenance is running.
+
+Console jobs have durable IDs and private logs beneath `state_dir/web-jobs`.
+Expand a console job to read the last 32 KiB of captured output. Jobs are listed
+newest first and captured output is capped at 8 MiB. Use `journal-prune` for
+completed-log retention. If a console job was interrupted, inspect its output,
+the service state, and the operation or upgrade history. Choose **Acknowledge
+after inspection** on the job to clear its console record, then use the relevant
+recovery action for the underlying workflow.
 
 Live process leases prevent acknowledgement while a console child is executing.
 The `web_job_timeout` configuration value limits each command to 3600 seconds by

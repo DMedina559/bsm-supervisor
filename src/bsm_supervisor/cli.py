@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -170,6 +171,9 @@ def parser() -> argparse.ArgumentParser:
     for kind in ("branch", "tag", "commit"):
         refs.add_argument("--" + kind)
     git_install.add_argument("--trust-source-build", action="store_true", required=True)
+    archive = commands.add_parser("installation-archive-failed")
+    archive.add_argument("id")
+    archive.add_argument("--offline-confirmed", action="store_true", required=True)
     removal = commands.add_parser("installation-remove")
     removal.add_argument("id")
     removal.add_argument("--offline-confirmed", action="store_true", required=True)
@@ -274,7 +278,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "status":
             print(json.dumps(service_backend(config).status(), indent=2))
             return 0
-        store = Store(config.state_dir)
+        store = Store(
+            config.state_dir,
+            console_job=os.environ.get("BSM_SUPERVISOR_CONSOLE_JOB", ""),
+        )
         if args.command == "console-task":
             print(
                 json.dumps(
@@ -497,6 +504,8 @@ def main(argv: list[str] | None = None) -> int:
                     install_git(config, store, kind, getattr(args, kind)), indent=2
                 )
             )
+        elif args.command == "installation-archive-failed":
+            print(json.dumps(cleanup.archive_failed(config, store, args.id), indent=2))
         elif args.command == "installation-remove":
             cleanup.remove(config, store, args.id)
             print("Installation removed")

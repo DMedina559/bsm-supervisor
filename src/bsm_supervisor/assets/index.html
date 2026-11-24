@@ -298,6 +298,7 @@
           </svg>
           Graceful stop
          </button>
+         <button class="action-button danger-button" id="stop-service" data-action="stop" type="button">Stop Service</button>
          <button class="action-button" data-action="restart">
           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
            <path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 2M5 16a8 8 0 0 0 13 2"></path>
@@ -311,13 +312,17 @@
           </svg>
           Check readiness
          </button>
-         <button class="action-button" data-admin-action="service-logs">
+         <button class="action-button" data-recovery-ack id="service-logs-open" type="button">
           <svg aria-hidden="true" class="ui-icon" fill="none" height="18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" viewbox="0 0 24 24" width="18">
            <path d="M8 3h10a2 2 0 0 1 2 2v16H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2ZM8 7h8M8 11h8M8 15h5"></path>
           </svg>
           View logs
          </button>
         </div>
+        <label>
+         <input type="checkbox" id="service-wait"/>
+         Wait for BSM readiness on start and restart
+        </label>
        </article>
        <article class="panel">
         <div class="panel-heading section-heading">
@@ -327,7 +332,7 @@
           </svg>
          </span>
          <h2>
-          Version management
+          Version Management
          </h2>
         </div>
         <p id="selected"></p>
@@ -351,12 +356,74 @@
          </button>
         </div>
         <label>
+         <input id="release-allow-same" type="checkbox"/>
+         Allow a PyPI upgrade with the same package version
+        </label>
+        <details class="row" id="release-browser">
+         <summary>Browse BSM Releases</summary>
+         <div class="activity-toolbar">
+          <label>Compatible Release
+           <select class="form-input" id="available-release" disabled></select>
+          </label>
+          <button class="action-button" id="reload-releases" data-recovery-ack type="button">Load Releases</button>
+         </div>
+         <p id="release-status" role="status"></p>
+        </details>
+        <details class="row">
+         <summary>Install From Git</summary>
+         <div class="activity-toolbar">
+          <label>Reference Type
+           <select class="form-input" id="bsm-git-kind">
+            <option value="branch">Branch</option>
+            <option value="tag">Tag</option>
+            <option value="commit">Commit</option>
+           </select>
+          </label>
+          <label>Reference
+           <input class="form-input" id="bsm-git-ref" autocomplete="off" spellcheck="false" maxlength="200" placeholder="dev"/>
+          </label>
+         </div>
+         <p class="hint">Builds from the official BSM repository and registers the resolved commit.</p>
+         <button class="action-button" data-action="install-git" type="button">Install From Git</button>
+        </details>
+        <label>
          Registered installation
          <select class="form-input" id="installation"></select>
         </label>
-        <button class="action-button" data-action="activate">
-         Select while stopped
-        </button>
+        <div class="buttons">
+         <button class="action-button" data-action="activate" type="button">Select While Stopped</button>
+         <button class="action-button" data-action="upgrade-installation" id="upgrade-installation" type="button" hidden>Upgrade to Selected Git Build</button>
+         <button class="action-button" id="inspect-installation" data-recovery-ack type="button" hidden>Inspect Installation</button>
+        </div>
+        <label id="upgrade-same-option" hidden>
+         <input id="upgrade-same-version" type="checkbox"/>
+         Allow a Git upgrade with the same package version
+        </label>
+        <details class="row">
+         <summary>Register Existing Installation</summary>
+         <form id="register-installation">
+          <div class="activity-toolbar">
+           <label>Installation Directory Name
+            <input id="register-installation-id" class="form-input" required maxlength="128" autocomplete="off" spellcheck="false"/>
+           </label>
+           <label>BSM Version
+            <input id="register-installation-version" class="form-input" required maxlength="128" autocomplete="off" spellcheck="false"/>
+           </label>
+          </div>
+          <p class="hint">Enter the name of an existing virtual environment directly inside the installations directory.</p>
+          <button class="action-button" type="submit">Register Installation</button>
+         </form>
+        </details>
+        <section id="installation-inspector" hidden aria-label="Installation details">
+         <p id="installation-summary" role="status"></p>
+         <pre class="log" id="installation-log" tabindex="0" aria-label="Installation build log"></pre>
+         <div class="buttons">
+          <button class="action-button" id="build-upgrade-recovery" data-recovery-ack type="button" hidden>Review Pending Upgrade</button>
+          <button class="action-button" id="reload-installation" data-recovery-ack type="button">Reload Build Log</button>
+          <button class="action-button" data-action="installation-archive-failed" id="archive-failed-installation" type="button" hidden>Move Failed Build Aside</button>
+          <button class="action-button danger-button" data-action="installation-remove" id="remove-inspected-installation" type="button" hidden>Remove Installation</button>
+         </div>
+        </section>
        </article>
        <article class="panel">
         <div class="panel-heading section-heading">
@@ -409,7 +476,7 @@
          </h2>
         </div>
         <label>
-         Operation or workflow ID
+         Operation ID
          <input class="form-input" id="recovery" inputmode="numeric" placeholder="Enter ID or click Inspect in Operations"/>
         </label>
         <div class="action-group">
@@ -418,20 +485,6 @@
           <button class="action-button" data-recovery-ack="" id="operation-inspect" type="button">Inspect operation</button>
           <button class="action-button" data-recovery-ack="" id="operation-acknowledge" type="button">
            Acknowledge interruption
-          </button>
-         </div>
-        </div>
-        <div class="action-group">
-         <span class="action-group-label">Interrupted upgrade</span>
-         <div class="buttons">
-          <button class="action-button" data-action="upgrade-resume" type="button">
-           Resume upgrade
-          </button>
-          <button class="action-button" data-action="upgrade-cancel" type="button">
-           Cancel unstarted upgrade
-          </button>
-          <button class="action-button danger-button" data-action="upgrade-restore" type="button">
-           Restore upgrade checkpoint
           </button>
          </div>
         </div>
@@ -446,7 +499,52 @@
         <p class="hint">
          Inspect the history and current service state before acknowledging anything. Acknowledgement does not restore data.
         </p>
+        <button class="action-button" data-recovery-ack id="operation-installation-inspect" type="button" hidden>Inspect Build and Logs</button>
         <pre aria-live="polite" class="log" id="recovery-report">Inspect an operation to review its service state and events.</pre>
+       </article>
+      </div>
+      <div class="activity-grid">
+       <article class="panel activity-panel" id="upgrades-panel">
+        <h2>BSM Upgrades</h2>
+        <div class="activity-toolbar">
+         <label>
+          Upgrade History
+          <select class="form-input" id="upgrade-history"></select>
+         </label>
+         <button class="action-button secondary" id="upgrade-inspect" data-recovery-ack type="button" disabled>Inspect Upgrade</button>
+        </div>
+        <p id="upgrade-summary" role="status"></p>
+        <div id="upgrade-steps"></div>
+        <button class="action-button" data-recovery-ack id="upgrade-installation-inspect" type="button" hidden>Inspect Target Installation</button>
+        <div class="action-group" id="upgrade-recovery" hidden>
+         <span class="action-group-label">Upgrade recovery</span>
+         <div class="buttons">
+          <button class="action-button" data-action="upgrade-resume" id="upgrade-resume" hidden disabled type="button">
+           Resume upgrade
+          </button>
+          <button class="action-button" data-action="upgrade-cancel" id="upgrade-cancel" hidden disabled type="button">
+           Cancel unstarted upgrade
+          </button>
+          <button class="action-button danger-button" data-action="upgrade-restore" id="upgrade-restore" hidden disabled type="button">
+           Restore upgrade checkpoint
+          </button>
+         </div>
+        </div>
+       </article>
+       <article class="panel activity-panel" id="service-logs-panel">
+        <h2>Service Logs</h2>
+        <div class="activity-toolbar">
+         <label>
+          Journal Source
+          <select class="form-input" id="service-log-source">
+           <option value="bsm">BSM Service</option>
+           <option value="console">Supervisor Console</option>
+          </select>
+         </label>
+         <button class="action-button secondary" id="service-logs-reload" data-recovery-ack type="button">Reload Log</button>
+        </div>
+        <p id="service-logs-status" role="status"></p>
+        <pre class="log" id="service-log-output" tabindex="0" aria-label="Service journal output"></pre>
        </article>
       </div>
       <div class="activity-grid">
@@ -461,7 +559,7 @@
           Operations
          </h2>
         </div>
-        <div id="operations"></div>
+        <div id="operations" tabindex="-1"></div>
         <button class="action-button" id="history-more" data-recovery-ack>Load older history</button>
         <div id="older-history"></div>
        </article>
@@ -473,10 +571,10 @@
           </svg>
          </span>
          <h2>
-          Console jobs
+          Console Jobs
          </h2>
         </div>
-        <div id="jobs"></div>
+        <div id="jobs" aria-label="Recent console jobs"></div>
         <p class="empty-caption">
          No console jobs yet. Your next action will appear here.
         </p>
@@ -1049,6 +1147,7 @@
          <button class="action-button" data-admin-action="unit-refresh">
           Refresh managed unit
          </button>
+         <button class="action-button" id="repair-permissions" data-admin-action="permissions-repair" type="button">Repair Permissions</button>
          <button class="action-button" id="diagnostics-download">
           Download last report
          </button>
@@ -1086,6 +1185,7 @@
         </h2>
        </div>
        <div class="output-actions">
+        <button class="action-button" id="repair-from-diagnostics" data-admin-action="permissions-repair" type="button" hidden>Repair Permissions</button>
         <button class="action-button" id="output-copy" type="button">Copy</button>
         <button class="action-button" id="output-clear" type="button">Clear</button>
        </div>

@@ -47,6 +47,34 @@ class ArchiveAdministrationTests(unittest.TestCase):
             {"action": action, "confirmed": True, **value},
         )
 
+    def test_register_a_direct_existing_environment_without_selecting_it(self):
+        root = self.config.installations_dir
+        local = root / "local-build"
+        (local / "bin").mkdir(parents=True)
+        for name in ("bin/python", "bin/bedrock-server-manager", "pyvenv.cfg"):
+            (local / name).touch()
+        (root / "alias").symlink_to(local)
+        for invalid in ("alias", "../local-build", "current"):
+            with self.assertRaises(ValueError):
+                self.execute("register", installation_id=invalid, version="4.1.0")
+        report = self.execute(
+            "register", installation_id="local-build", version="4.1.0"
+        )
+        self.assertEqual(report, {"id": "local-build", "version": "4.1.0"})
+        self.assertFalse((root / "current").exists())
+        with self.assertRaisesRegex(ValueError, "already registered"):
+            self.execute("register", installation_id="local-build", version="4.1.0")
+
+    def test_permissions_repair_requires_confirmation_and_uses_shared_checks(self):
+        with self.assertRaises(ValueError):
+            console_admin.validate({"action": "permissions-repair"})
+        with patch(
+            "bsm_supervisor.console_admin.data_permissions.repair",
+            return_value={"changed": 3},
+        ) as repair:
+            self.assertEqual(self.execute("permissions-repair"), {"changed": 3})
+            repair.assert_called_once_with(self.config, self.store)
+
     def test_encrypted_download_upload_import_preserves_sqlite_and_world(self):
         checkpoint_id = self.checkpoint()
         result = self.execute(

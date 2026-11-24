@@ -8,7 +8,7 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from uuid import uuid4
 
-from . import self_update
+from . import cleanup, self_update, upgrades
 from .checkpoint_files import read_json, sync_directory
 from .config import Config
 from .launchguard import boot_identity, process_generation
@@ -90,16 +90,77 @@ def inspect_operation(config: Config, store: Store, operation_id: int) -> dict:
                 (operation_id,),
             )
         ]
+    installation_id = None
+    if row["action"].startswith("install:"):
+        installation_id = "release-" + row["action"].split(":", 1)[1]
+    elif row["action"].startswith("install-git:"):
+        for event in events:
+            if event["detail"].startswith("Installation target: "):
+                installation_id = Path(
+                    event["detail"].removeprefix("Installation target: ")
+                ).name
+                break
+    if installation_id is not None:
+        try:
+            cleanup.build_id(installation_id)
+        except ValueError:
+            installation_id = None
     value = {"operation": dict(row), "service": service_state(config)}
     return {
         **value,
         "digest": digest(value),
         "events": events,
+        "installation_id": installation_id,
         "event_limit": 500,
         "effect": (
             "Acknowledgement clears interruption bookkeeping; "
             "it does not restore data or restart BSM."
         ),
+    }
+
+
+def inspect_upgrade(config: Config, store: Store, workflow_id: int) -> dict:
+    with store.connect() as db:
+        row = db.execute(
+            "SELECT * FROM workflows WHERE id = ? AND kind = 'upgrade'",
+            (workflow_id,),
+        ).fetchone()
+    if row is None:
+        raise ValueError("Unknown upgrade")
+    steps = store.workflow_operations(workflow_id)
+    recovery = []
+    try:
+        plan = upgrades.status(config, workflow_id)
+    except FileNotFoundError:
+        plan = None
+    checkpoint_id = plan.get("checkpoint_id") if plan else None
+    if row["state"] == "running":
+        if plan is None:
+            marker = config.config_dir / "supervisor-upgrade.required"
+            if not steps and not marker.exists():
+                recovery.append("cancel")
+        else:
+            if not plan.get("ever_started"):
+                recovery.append("cancel")
+            if not plan.get("restore_operation_id") and not plan["phase"].startswith(
+                "restor"
+            ):
+                recovery.append("resume")
+            checkpoint_id = checkpoint_id or upgrades.published_checkpoint(
+                config, steps
+            )
+            if checkpoint_id:
+                recovery.append("restore")
+    return {
+        "workflow": dict(row),
+        "phase": plan["phase"] if plan else None,
+        "original_version": plan["original"]["version"] if plan else None,
+        "target_version": plan["target_version"] if plan else None,
+        "installation_id": plan["target_id"] if plan else None,
+        "checkpoint_id": checkpoint_id,
+        "last_error": plan.get("last_error") if plan else None,
+        "steps": steps,
+        "recovery": recovery,
     }
 
 

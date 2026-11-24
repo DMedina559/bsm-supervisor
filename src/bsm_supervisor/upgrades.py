@@ -325,6 +325,20 @@ def upgrade(
             raise
 
 
+def published_checkpoint(config: Config, steps: list[dict]) -> str | None:
+    """Find a checkpoint published before the upgrade journal recorded its ID."""
+    captures = {step["id"] for step in steps if step["action"] == "checkpoint:create"}
+    if not captures:
+        return None
+    for item in checkpoints.list_checkpoints(config):
+        if item.get("invalid"):
+            continue
+        saved = checkpoints.load(config, item["id"])
+        if saved.get("operation_id") in captures:
+            return saved["id"]
+    return None
+
+
 def _settle_steps(config: Config, store: Store, plan: dict) -> None:
     for step in store.workflow_operations(plan["id"]):
         if step["state"] != "running":
@@ -336,20 +350,13 @@ def _settle_steps(config: Config, store: Store, plan: dict) -> None:
             store.finish(
                 step["id"], "failed", "Interrupted step reconciled by upgrade recovery"
             )
-    # A checkpoint may have been published before the controller recorded its ID.
     if plan.get("checkpoint_id") is None:
-        captures = {
-            step["id"]
-            for step in store.workflow_operations(plan["id"])
-            if step["action"] == "checkpoint:create"
-        }
-        for item in checkpoints.list_checkpoints(config):
-            if item.get("invalid"):
-                continue
-            saved = checkpoints.load(config, item["id"])
-            if saved.get("operation_id") in captures:
-                plan["checkpoint_id"] = saved["id"]
-                _save(config, plan)
+        checkpoint_id = published_checkpoint(
+            config, store.workflow_operations(plan["id"])
+        )
+        if checkpoint_id is not None:
+            plan["checkpoint_id"] = checkpoint_id
+            _save(config, plan)
     # Retain committed restore originals; discard only staging after a reversed attempt.
     for step in store.workflow_operations(plan["id"]):
         if step["action"].startswith("checkpoint:restore:"):
@@ -370,21 +377,22 @@ def recover(config: Config, store: Store, workflow_id: int, action: str) -> dict
     with store.workflow(workflow_id):
         if not _path(config, workflow_id).exists():
             if (
-                store.workflow_operations(workflow_id)
+                action != "cancel"
+                or store.workflow_operations(workflow_id)
                 or (config.config_dir / "supervisor-upgrade.required").exists()
             ):
                 raise ValueError("Upgrade journal is missing; inspect before recovery")
             store.finish_workflow(workflow_id, "failed", "Cancelled before preparation")
             return {"id": workflow_id, "phase": "cancelled"}
         plan = status(config, workflow_id)
+        if action == "cancel" and plan["ever_started"]:
+            raise ValueError(
+                "Started upgrades require resume or explicit data restoration"
+            )
         try:
             _settle_steps(config, store, plan)
             _selected(config, store, plan)
             if action == "cancel":
-                if plan["ever_started"]:
-                    raise ValueError(
-                        "Started upgrades require resume or explicit data restoration"
-                    )
                 # No new-version startup was attempted; selecting the original is safe.
                 state = service_backend(config).status()
                 if state.get("ActiveState") == "active":

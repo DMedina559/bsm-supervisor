@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import test_checkpoints as fixtures
 
-from bsm_supervisor import events, scheduling, transfer, web
+from bsm_supervisor import events, scheduling, transfer, upgrades, web
 from bsm_supervisor.checkpoint_files import read_json, write_json
 from bsm_supervisor.config import Config
 from bsm_supervisor.releases import Release
@@ -198,6 +198,45 @@ class ManagementTests(unittest.TestCase):
         web.token_create(self.token)
         self.assertEqual(self.request("/api/events")[0], 200)
 
+    def test_inspect_upgrade_missing_plan_and_finished_workflow(self):
+        with self.store.workflow() as workflow_id:
+            pass
+        path = f"/api/upgrades/{workflow_id}"
+        self.assertEqual(self.request(path, authenticated=False)[0], 401)
+        status, body, _ = self.request(path)
+        self.assertEqual(status, 200)
+        report = json.loads(body)
+        self.assertEqual(report["workflow"]["id"], workflow_id)
+        self.assertIsNone(report["phase"])
+        self.assertEqual(report["recovery"], ["cancel"])
+        with self.assertRaisesRegex(ValueError, "Upgrade journal is missing"):
+            upgrades.recover(self.config, self.store, workflow_id, "resume")
+        result = upgrades.recover(self.config, self.store, workflow_id, "cancel")
+        self.assertEqual(result["phase"], "cancelled")
+        self.assertEqual(json.loads(self.request(path)[1])["recovery"], [])
+
+    def test_service_journal_reads_only_known_units_without_job_lock(self):
+        with (
+            self.console.lock,
+            patch(
+                "bsm_supervisor.console_admin.service_logs",
+                return_value="journal entry",
+            ) as logs,
+        ):
+            for source, unit in (
+                ("bsm", self.config.service_unit),
+                ("console", "bsm-supervisor-console.service"),
+            ):
+                path = f"/api/logs/{source}"
+                self.assertEqual(self.request(path, authenticated=False)[0], 401)
+                status, body, _ = self.request(path)
+                self.assertEqual(
+                    (status, json.loads(body)), (200, {"output": "journal entry"})
+                )
+                logs.assert_called_with(unit)
+            self.assertEqual(self.request("/api/logs/ssh.service")[0], 404)
+            self.assertEqual(logs.call_count, 2)
+
     def test_public_assets_do_not_require_auth_and_paths_are_fixed(self):
         for path in ("/", "/app.js", "/style.css"):
             self.assertEqual(self.request(path, authenticated=False)[0], 200)
@@ -229,6 +268,105 @@ class ManagementTests(unittest.TestCase):
             ),
         )
         self.assertEqual(self.request("/api/actions", "POST", raw=b"x" * 8193)[0], 400)
+
+    def test_service_wait_stop_and_same_version_release_flags(self):
+        self.assertEqual(
+            web.arguments({"action": "start", "wait": True}), ["start", "--wait"]
+        )
+        self.assertEqual(
+            web.arguments({"action": "restart", "confirmed": True, "wait": True}),
+            ["restart", "--wait"],
+        )
+        self.assertEqual(web.arguments({"action": "stop", "confirmed": True}), ["stop"])
+        self.assertIn(
+            "--allow-same-version",
+            web.arguments(
+                {
+                    "action": "upgrade",
+                    "target": "4.1.0",
+                    "confirmed": True,
+                    "accept_migrations": True,
+                    "allow_same": True,
+                }
+            ),
+        )
+        with self.assertRaises(ValueError):
+            web.arguments({"action": "start", "wait": "true"})
+
+    def test_release_picker_is_authenticated_and_independent_of_the_job_queue(self):
+        with (
+            self.console.lock,
+            patch(
+                "bsm_supervisor.web.releases.discover",
+                return_value=[Release("4.1.0"), Release("4.2.0b1")],
+            ) as discover,
+        ):
+            self.assertEqual(self.request("/api/releases", authenticated=False)[0], 401)
+            discover.assert_not_called()
+            status, body, _ = self.request("/api/releases")
+            self.assertEqual(status, 200)
+            self.assertEqual(
+                json.loads(body),
+                [
+                    {"version": "4.1.0", "prerelease": False},
+                    {"version": "4.2.0b1", "prerelease": True},
+                ],
+            )
+
+    def test_web_git_install_and_coordinated_git_upgrade_arguments(self):
+        value = {
+            "action": "install-git",
+            "ref_kind": "branch",
+            "target": "feature/example",
+        }
+        with self.assertRaisesRegex(ValueError, "Confirm trust"):
+            web.arguments(value)
+        self.assertEqual(
+            web.arguments({**value, "trust_source": True}),
+            ["install-git", "--branch", "feature/example", "--trust-source-build"],
+        )
+        with self.assertRaises(ValueError):
+            web.arguments({**value, "target": "--upload-pack", "trust_source": True})
+        git_id = "git-" + "a" * 40
+        self.assertEqual(
+            web.arguments(
+                {
+                    "action": "upgrade-installation",
+                    "target": git_id,
+                    "confirmed": True,
+                    "accept_migrations": True,
+                    "allow_same": True,
+                }
+            ),
+            [
+                "upgrade",
+                "--installation",
+                git_id,
+                "--maintenance-confirmed",
+                "--accept-migrations",
+                "--allow-same-version",
+            ],
+        )
+
+    def test_job_output_links_only_its_own_operation_and_build(self):
+        job_id = "a" * 32
+        (self.console.jobs / (job_id + ".log")).write_text("build failed")
+        store = type(self.store)(self.config.state_dir, console_job=job_id)
+        with store.mutation("install:4.1.0") as operation:
+            pass
+        with self.store.mutation("install:4.2.0"):
+            pass
+        status, body, _ = self.request("/api/jobs/" + job_id)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["operation_id"], operation)
+        path = "/api/installations/release-4.1.0"
+        self.assertEqual(self.request(path, authenticated=False)[0], 401)
+        logs = self.config.state_dir / "logs"
+        logs.mkdir()
+        (logs / "release-4.1.0.log").write_text("installer output")
+        self.assertEqual(
+            json.loads(self.request(path)[1])["output"], "installer output"
+        )
 
     def test_console_job_output_and_interrupted_job_block(self):
         job = {"id": "a" * 32, "action": "start", "state": "running"}

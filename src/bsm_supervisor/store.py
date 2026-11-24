@@ -16,7 +16,10 @@ class BusyError(RuntimeError):
 class Store:
     """Persist metadata without importing or modifying BSM."""
 
-    def __init__(self, state_dir: Path) -> None:
+    def __init__(self, state_dir: Path, *, console_job: str = "") -> None:
+        self.console_job = (
+            console_job if re.fullmatch(r"[0-9a-f]{32}", console_job) else ""
+        )
         state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.path = state_dir / "supervisor.sqlite3"
         self._lock_owner: int | None = None
@@ -121,8 +124,12 @@ class Store:
                 ) from exc
             assert cursor.lastrowid is not None
             db.execute(
-                "INSERT INTO events(operation_id, state) VALUES (?, 'running')",
-                (cursor.lastrowid,),
+                "INSERT INTO events(operation_id, state, detail) "
+                "VALUES (?, 'running', ?)",
+                (
+                    cursor.lastrowid,
+                    "Console job: " + self.console_job if self.console_job else "",
+                ),
             )
             return cursor.lastrowid
 
