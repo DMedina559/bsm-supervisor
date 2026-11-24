@@ -97,6 +97,19 @@ version has attempted startup. After that point, recovery requires resuming
 the upgrade or explicitly restoring its checkpoint. Recovery uses the same
 workflow lock and checks as the CLI.
 
+Under **Version Management**, expand **Install From Git** and choose a branch,
+tag, or full commit SHA from the official BSM repository. Confirm that you trust
+the source build. Choose the resulting installation to inspect its build log,
+select it while BSM is stopped, or run a coordinated Git upgrade. A separate
+checkbox allows upgrading between builds that report the same package version.
+
+Failed jobs link to their recorded operation and, when available, their upgrade
+workflow. The operation and upgrade inspectors link to the target build log.
+If the journal identifies an unregistered failed build, use **Move Failed Build
+Aside** after resolving any pending workflow and stopping BSM. This preserves the
+directory under a hidden name and frees the original path for a fresh build.
+Registered installations use the existing protected removal action.
+
 Choose **View logs** on the BSM service card to open the service journal. You can
 switch between the BSM service and the supervisor console and reload up to 200
 recent entries while maintenance is running.

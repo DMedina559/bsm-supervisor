@@ -269,6 +269,61 @@ class ManagementTests(unittest.TestCase):
         )
         self.assertEqual(self.request("/api/actions", "POST", raw=b"x" * 8193)[0], 400)
 
+    def test_web_git_install_and_coordinated_git_upgrade_arguments(self):
+        value = {
+            "action": "install-git",
+            "ref_kind": "branch",
+            "target": "feature/example",
+        }
+        with self.assertRaisesRegex(ValueError, "Confirm trust"):
+            web.arguments(value)
+        self.assertEqual(
+            web.arguments({**value, "trust_source": True}),
+            ["install-git", "--branch", "feature/example", "--trust-source-build"],
+        )
+        with self.assertRaises(ValueError):
+            web.arguments({**value, "target": "--upload-pack", "trust_source": True})
+        git_id = "git-" + "a" * 40
+        self.assertEqual(
+            web.arguments(
+                {
+                    "action": "upgrade-installation",
+                    "target": git_id,
+                    "confirmed": True,
+                    "accept_migrations": True,
+                    "allow_same": True,
+                }
+            ),
+            [
+                "upgrade",
+                "--installation",
+                git_id,
+                "--maintenance-confirmed",
+                "--accept-migrations",
+                "--allow-same-version",
+            ],
+        )
+
+    def test_job_output_links_only_its_own_operation_and_build(self):
+        job_id = "a" * 32
+        (self.console.jobs / (job_id + ".log")).write_text("build failed")
+        store = type(self.store)(self.config.state_dir, console_job=job_id)
+        with store.mutation("install:4.1.0") as operation:
+            pass
+        with self.store.mutation("install:4.2.0"):
+            pass
+        status, body, _ = self.request("/api/jobs/" + job_id)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["operation_id"], operation)
+        path = "/api/installations/release-4.1.0"
+        self.assertEqual(self.request(path, authenticated=False)[0], 401)
+        logs = self.config.state_dir / "logs"
+        logs.mkdir()
+        (logs / "release-4.1.0.log").write_text("installer output")
+        self.assertEqual(
+            json.loads(self.request(path)[1])["output"], "installer output"
+        )
+
     def test_console_job_output_and_interrupted_job_block(self):
         job = {"id": "a" * 32, "action": "start", "state": "running"}
         write_json(self.console.jobs / (job["id"] + ".json"), job)

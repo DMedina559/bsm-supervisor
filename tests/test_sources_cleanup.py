@@ -10,7 +10,7 @@ from unittest.mock import patch
 from bsm_supervisor import cleanup
 from bsm_supervisor.config import Config
 from bsm_supervisor.git_sources import install_git, validate_ref
-from bsm_supervisor.store import Store
+from bsm_supervisor.store import BusyError, Store
 
 
 class SourceCleanupTests(unittest.TestCase):
@@ -102,3 +102,34 @@ class SourceCleanupTests(unittest.TestCase):
         cleanup.remove(self.config, self.store, "old")
         self.assertEqual(self.store.installations(), [])
         self.assertEqual(marker.read_text(), "keep")
+
+    def test_only_journaled_failed_build_can_be_moved_after_workflow_recovery(self):
+        installation_id = "release-4.1.0"
+        target = self.config.installations_dir / installation_id
+        target.mkdir()
+        (target / "marker").write_text("keep")
+        self.assertFalse(
+            cleanup.inspect(self.config, self.store, installation_id)["can_archive"]
+        )
+        with self.assertRaisesRegex(ValueError, "journal"):
+            cleanup.archive_failed(self.config, self.store, installation_id)
+        with self.store.workflow() as workflow:
+            with self.assertRaisesRegex(ValueError, "build failed"):
+                with self.store.mutation("install:4.1.0") as operation:
+                    self.store.note(
+                        operation, "Creating virtual environment: " + str(target)
+                    )
+                    raise ValueError("build failed")
+        self.assertFalse(
+            cleanup.inspect(self.config, self.store, installation_id)["can_archive"]
+        )
+        with self.assertRaises(BusyError):
+            cleanup.archive_failed(self.config, self.store, installation_id)
+        with self.store.workflow(workflow):
+            self.store.finish_workflow(workflow, "failed", "cancelled")
+        self.assertTrue(
+            cleanup.inspect(self.config, self.store, installation_id)["can_archive"]
+        )
+        result = cleanup.archive_failed(self.config, self.store, installation_id)
+        self.assertFalse(target.exists())
+        self.assertEqual((Path(result["archived_path"]) / "marker").read_text(), "keep")

@@ -96,6 +96,9 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflo
 .activity-toolbar .form-input { width: 100%; }
 #upgrade-summary:not(:empty) { padding: var(--bsm-space-3); border: 1px solid var(--bsm-border); border-radius: var(--bsm-radius-md); background: var(--bsm-surface-raised); color: var(--bsm-text); }
 #upgrade-summary:empty, #service-logs-status:empty, #service-log-output:empty { display: none; }
+#installation-inspector { margin-top: var(--bsm-space-3); padding: var(--bsm-space-3); border: 1px solid var(--bsm-border); border-radius: var(--bsm-radius-md); background: var(--bsm-surface-raised); }
+#installation-summary { margin-top: 0; }
+#installation-log:empty { display: none; }
 #service-log-output { min-height: 120px; max-height: 400px; }
 .job-card { min-width: 0; border: 1px solid var(--bsm-border); border-radius: var(--bsm-radius-md); background: var(--bsm-surface-raised); }
 .job-heading { display: flex; gap: var(--bsm-space-2); align-items: center; min-height: 54px; padding: var(--bsm-space-2) var(--bsm-space-3); border-radius: var(--bsm-radius-md); }

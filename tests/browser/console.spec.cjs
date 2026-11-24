@@ -182,3 +182,40 @@ test('upgrade recovery targets the inspected workflow and journals remain readab
   await expect(page.locator('#service-log-output')).toBeEmpty();
   await expect(page.locator('#upgrade-summary')).toBeEmpty();
 });
+
+test('a failed Git install links to its operation and confirmed build cleanup', async ({page}) => {
+  const id = 'a'.repeat(32), build = 'git-'+'b'.repeat(40);
+  const state = {
+    service:{ActiveState:'inactive'}, selection:null, installations:[], checkpoints:[],
+    operations:[], jobs:[], schedules:[], workflows:[],
+  };
+  await page.route('**/api/state', route => route.fulfill({json:state}));
+  await page.route('**/api/jobs/'+id, route => route.fulfill({json:{output:'Git build failed',operation_id:6}}));
+  await page.route('**/api/recovery/operations/6', route => route.fulfill({json:{
+    operation:{id:6,state:'failed'},installation_id:build,events:[],
+  }}));
+  await page.route('**/api/installations/'+build, route => route.fulfill({json:{
+    id:build,directory_exists:true,registered:null,can_archive:true,output:'Dependency build failed',
+  }}));
+  await page.route('**/api/actions', route => {
+    const {action} = route.request().postDataJSON();
+    const job = {id:action==='install-git'?id:'c'.repeat(32),action,state:'failed'};
+    state.jobs=[job];
+    return route.fulfill({status:202,json:job});
+  });
+  await login(page);
+  page.on('dialog', dialog => dialog.accept());
+  await page.getByText('Install From Git',{exact:true}).filter({visible:true}).first().click();
+  await page.locator('#bsm-git-ref').fill('feature/example');
+  const install = page.waitForRequest(request => request.url().endsWith('/api/actions'));
+  await page.locator('[data-action="install-git"]').click();
+  expect((await install).postDataJSON()).toEqual({
+    action:'install-git',target:'feature/example',ref_kind:'branch',trust_source:true,
+  });
+  await page.locator('#jobs').getByRole('button',{name:'Inspect Operation'}).click();
+  await page.locator('#operation-installation-inspect').click();
+  await expect(page.locator('#installation-log')).toHaveText('Dependency build failed');
+  const archive = page.waitForRequest(request => request.url().endsWith('/api/actions'));
+  await page.locator('#archive-failed-installation').click();
+  expect((await archive).postDataJSON()).toEqual({action:'installation-archive-failed',target:build,confirmed:true});
+});

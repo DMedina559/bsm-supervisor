@@ -327,7 +327,7 @@
           </svg>
          </span>
          <h2>
-          Version management
+          Version Management
          </h2>
         </div>
         <p id="selected"></p>
@@ -350,13 +350,46 @@
           Upgrade
          </button>
         </div>
+        <details class="row">
+         <summary>Install From Git</summary>
+         <div class="activity-toolbar">
+          <label>Reference Type
+           <select class="form-input" id="bsm-git-kind">
+            <option value="branch">Branch</option>
+            <option value="tag">Tag</option>
+            <option value="commit">Commit</option>
+           </select>
+          </label>
+          <label>Reference
+           <input class="form-input" id="bsm-git-ref" autocomplete="off" spellcheck="false" maxlength="200" placeholder="dev"/>
+          </label>
+         </div>
+         <p class="hint">Builds from the official BSM repository and registers the resolved commit.</p>
+         <button class="action-button" data-action="install-git" type="button">Install From Git</button>
+        </details>
         <label>
          Registered installation
          <select class="form-input" id="installation"></select>
         </label>
-        <button class="action-button" data-action="activate">
-         Select while stopped
-        </button>
+        <div class="buttons">
+         <button class="action-button" data-action="activate" type="button">Select While Stopped</button>
+         <button class="action-button" data-action="upgrade-installation" id="upgrade-installation" type="button" hidden>Upgrade to Selected Git Build</button>
+         <button class="action-button" id="inspect-installation" data-recovery-ack type="button" hidden>Inspect Installation</button>
+        </div>
+        <label id="upgrade-same-option" hidden>
+         <input id="upgrade-same-version" type="checkbox"/>
+         Allow a Git upgrade with the same package version
+        </label>
+        <section id="installation-inspector" hidden aria-label="Installation details">
+         <p id="installation-summary" role="status"></p>
+         <pre class="log" id="installation-log" tabindex="0" aria-label="Installation build log"></pre>
+         <div class="buttons">
+          <button class="action-button" id="build-upgrade-recovery" data-recovery-ack type="button" hidden>Review Pending Upgrade</button>
+          <button class="action-button" id="reload-installation" data-recovery-ack type="button">Reload Build Log</button>
+          <button class="action-button" data-action="installation-archive-failed" id="archive-failed-installation" type="button" hidden>Move Failed Build Aside</button>
+          <button class="action-button danger-button" data-action="installation-remove" id="remove-inspected-installation" type="button" hidden>Remove Installation</button>
+         </div>
+        </section>
        </article>
        <article class="panel">
         <div class="panel-heading section-heading">
@@ -432,6 +465,7 @@
         <p class="hint">
          Inspect the history and current service state before acknowledging anything. Acknowledgement does not restore data.
         </p>
+        <button class="action-button" data-recovery-ack id="operation-installation-inspect" type="button" hidden>Inspect Build and Logs</button>
         <pre aria-live="polite" class="log" id="recovery-report">Inspect an operation to review its service state and events.</pre>
        </article>
       </div>
@@ -447,6 +481,7 @@
         </div>
         <p id="upgrade-summary" role="status"></p>
         <div id="upgrade-steps"></div>
+        <button class="action-button" data-recovery-ack id="upgrade-installation-inspect" type="button" hidden>Inspect Target Installation</button>
         <div class="action-group" id="upgrade-recovery" hidden>
          <span class="action-group-label">Upgrade recovery</span>
          <div class="buttons">
@@ -490,7 +525,7 @@
           Operations
          </h2>
         </div>
-        <div id="operations"></div>
+        <div id="operations" tabindex="-1"></div>
         <button class="action-button" id="history-more" data-recovery-ack>Load older history</button>
         <div id="older-history"></div>
        </article>

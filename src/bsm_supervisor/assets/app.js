@@ -2,6 +2,7 @@
 let token = '', cursor = 0, busy = false, session = 0, submitting = false;
 let controller = new AbortController();
 let inspectedUpgrade = null, upgradeInspection = 0, journalLoad = 0, followedJob = null;
+let inspectedInstallation = null, installationInspection = 0, currentInstallation = null;
 function lockConsole() {
   session++; controller.abort(); controller = new AbortController();
   token=''; cursor=0; busy=false; submitting=false; followedJob=null;
@@ -9,6 +10,9 @@ function lockConsole() {
   el('upgrade-history').replaceChildren();
   el('upgrade-inspect').disabled=true;
   clearJournal();
+  closeInstallation();
+  el('bsm-git-ref').value='';
+  el('upgrade-same-version').checked=false;
   if(document.body)document.body.dataset.connected='false';
   el('console-connection').textContent='Locked';el('connection-chip').dataset.state='locked';
   for(const id of ['sidebar-version','sidebar-installation','summary-service','summary-version','summary-backups','summary-attention','summary-service-detail','summary-version-detail','summary-backups-detail','summary-attention-detail'])el(id).textContent='';
@@ -22,10 +26,11 @@ function lockConsole() {
 function updateButtons() {
   if(typeof updateAdminButtons==='function')updateAdminButtons();
   document.querySelectorAll('[data-action]').forEach(button=>{button.disabled=submitting || !!el('jobs').querySelector('[data-running]') ||
-    (button.dataset.action.startsWith('upgrade-') &&
+    (upgradeRecoveryActions.includes(button.dataset.action) &&
       !inspectedUpgrade?.recovery.includes(button.dataset.action.slice(8)));});
 }
 const el = id => document.getElementById(id);
+const upgradeRecoveryActions = ['upgrade-cancel','upgrade-resume','upgrade-restore'];
 async function request(path, value) {
   const currentSession=session;
   const response = await fetch('/api/' + path, {method: value ? 'POST' : 'GET', headers: {Authorization: 'Bearer ' + token, ...(value ? {'Content-Type':'application/json'} : {})}, ...(value ? {body:JSON.stringify(value)} : {}), cache:'no-store', credentials:'omit', signal:controller.signal});
@@ -55,7 +60,7 @@ function options(id, items, label) {
   if (items.some(item => item.id === previous)) select.value = previous;
 }
 function actionLabel(action) {
-  return ({'upgrade':'Upgrade BSM','upgrade-cancel':'Cancel BSM Upgrade','upgrade-resume':'Resume BSM Upgrade','upgrade-restore':'Restore Upgrade Checkpoint','service:start':'Start BSM','service:stop':'Stop BSM','service:graceful-stop':'Graceful stop','service:restart':'Restart BSM','service:unit-refresh':'Refresh managed unit','supervisor:install':'Install supervisor','supervisor:update-preflight':'Supervisor update checks'})[action] || String(action).replaceAll(':',' · ').replaceAll('-',' ');
+  return ({'upgrade':'Upgrade BSM','install-git':'Install BSM From Git','upgrade-installation':'Upgrade BSM to Git Build','installation-archive-failed':'Move Failed BSM Build Aside','upgrade-cancel':'Cancel BSM Upgrade','upgrade-resume':'Resume BSM Upgrade','upgrade-restore':'Restore Upgrade Checkpoint','service:start':'Start BSM','service:stop':'Stop BSM','service:graceful-stop':'Graceful stop','service:restart':'Restart BSM','service:unit-refresh':'Refresh managed unit','supervisor:install':'Install supervisor','supervisor:update-preflight':'Supervisor update checks'})[action] || String(action).replaceAll(':',' · ').replaceAll('-',' ');
 }
 function renderOperationRows(items, container=el('operations')) {
   if(!items.length){container.textContent='No operations recorded. Service and maintenance history will appear here.';return;}
@@ -111,7 +116,10 @@ function createJobRow(id) {
     await request('jobs/'+id+'/acknowledge',{confirmed:true});
     await refresh();
   });
-  body.append(identity,output,acknowledge);
+  const actions=document.createElement('div');
+  actions.className='buttons job-actions';
+  actions.append(acknowledge);
+  body.append(identity,output,actions);
   row.append(summary,body);
 
   let loading=false, loadedState;
@@ -124,6 +132,7 @@ function createJobRow(id) {
       const report=await request('jobs/'+id);
       if(output.textContent!==report.output) output.textContent=report.output || 'No output yet.';
       loadedState=state;
+      if(row.dataset.state===state) renderJobLinks(row, {action:row.dataset.action,target:row.dataset.target},state,report);
     } catch(error) {
       if(error.name!=='AbortError') output.textContent=error.message;
     } finally {
@@ -146,6 +155,8 @@ function renderJobs(items) {
     row.toggleAttribute('data-running',active);
     const stateChanged=row.dataset.state!==state;
     row.dataset.state=state;
+    row.dataset.action=item.action;
+    row.dataset.target=item.target || '';
     row.querySelector('strong').textContent=actionLabel(item.action);
     const time=row.querySelector('time');
     if(item.created_at) {
@@ -156,6 +167,7 @@ function renderJobs(items) {
     status.dataset.state=state;
     status.textContent=state.charAt(0).toUpperCase()+state.slice(1);
     row.querySelector('button').hidden=!pending || active;
+    if(stateChanged) renderJobLinks(row,item,state);
     if(!row.parentNode) {
       // Insert each new job next to its immediate predecessor in the sorted list.
       if(previous) previous.after(row);
@@ -173,6 +185,48 @@ function renderJobs(items) {
   for(const obsolete of existing.values()) obsolete.remove();
 }
 
+function focusOverview(id) {
+  if(typeof chooseSection==='function') chooseSection('overview');
+  const node=el(id);
+  node.scrollIntoView?.({block:'nearest'});
+  node.focus?.({preventScroll:true});
+}
+function focusUpgrade(id) {
+  focusOverview('upgrade-history');
+  const select=el('upgrade-history');
+  if(id && [...select.options].some(option=>option.value===String(id))) select.value=String(id);
+  if(select.value) return el('upgrade-inspect').onclick();
+}
+function renderJobLinks(row,item,state,report={}) {
+  for(const link of row.querySelectorAll('[data-job-link]')) link.remove();
+  if(!['failed','interrupted'].includes(state)) return;
+  const actions=row.querySelector('.job-actions');
+  function link(label,callback) {
+    const button=document.createElement('button');
+    button.type='button';
+    button.className='action-button';
+    button.textContent=label;
+    button.setAttribute('data-recovery-ack','');
+    button.setAttribute('data-job-link','');
+    button.onclick=callback;
+    actions.append(button);
+  }
+  if(item.action==='upgrade' || item.action==='upgrade-installation' || upgradeRecoveryActions.includes(item.action)) {
+    link('Review Upgrade Recovery',()=>focusUpgrade(report.workflow_id ||
+      (upgradeRecoveryActions.includes(item.action) && item.target)));
+  }
+  if(item.action==='upgrade-installation' || item.action.startsWith('installation-')) {
+    link('Inspect Build and Logs',()=>inspectInstallation(item.target));
+  } else if(item.action==='install' && item.target && !['stable','prerelease'].includes(item.target.toLowerCase())) {
+    link('Inspect Build and Logs',()=>inspectInstallation('release-'+item.target));
+  }
+  if(report.operation_id) link('Inspect Operation',()=>{
+    focusOverview('recovery');
+    el('recovery').value=String(report.operation_id);
+    return inspectOperation();
+  });
+  else link('Review Operation History',()=>focusOverview('operations'));
+}
 function renderWorkspace(state) {
   const service=state.service||{},selected=state.selection,checkpoints=state.checkpoints||[];
   const pending=(state.operations||[]).filter(item=>['running','interrupted'].includes(item.state));
@@ -202,6 +256,8 @@ async function refresh() {
     el('autostart-summary').textContent=state.service.error?'Cannot read the managed service. Run diagnostics to inspect it.':state.autostart?.reason || '';
     el('selected').textContent=state.selection ? 'Selected: '+state.selection.id+' · '+state.selection.version : 'No version selected';
     options('installation',state.installations,item=>item.id+' · '+item.version);
+    currentInstallation=state.selection?.id || null;
+    updateInstallationControls();
     options('checkpoint',state.checkpoints,item=>item.id+(item.invalid?' · invalid':''));
     renderOperationRows(state.operations);renderWorkspace(state);
     renderUpgrades(state.workflows || []);
@@ -237,45 +293,113 @@ el('error').onclick=()=>{el('error').textContent='';};
 el('login').addEventListener('submit', event=>{event.preventDefault(); const credential=el('token').value.trim(); if(!credential){el('error').textContent='Enter a console token to connect.'; return;} lockConsole(); token=credential; el('token').value=''; refresh();});
 el('logout').onclick=lockConsole;
 el('refresh').onclick=refresh;
+el('installation').onchange=updateInstallationControls;
+function updateInstallationControls() {
+  const id=el('installation').value;
+  const git=!!id?.startsWith('git-');
+  el('upgrade-installation').hidden=!git || id===currentInstallation;
+  el('upgrade-same-option').hidden=el('upgrade-installation').hidden;
+  el('inspect-installation').hidden=!id || !/^(git-|release-)/.test(id);
+}
+function closeInstallation() {
+  installationInspection++;
+  inspectedInstallation=null;
+  el('installation-inspector').hidden=true;
+  delete el('installation-inspector').dataset.id;
+  el('installation-summary').textContent='';
+  el('installation-log').textContent='';
+}
+function inspectInstallation(id) {
+  if(!id) return;
+  return recoveryRequest(async()=>{
+    closeInstallation();
+    const inspection=installationInspection;
+    el('installation-inspector').hidden=false;
+    el('installation-inspector').dataset.id=id;
+    el('installation-summary').textContent='Loading '+id+'…';
+    focusOverview('reload-installation');
+    for(const name of ['archive-failed-installation','remove-inspected-installation','build-upgrade-recovery']) el(name).hidden=true;
+    let report;
+    try {
+      report=await request('installations/'+encodeURIComponent(id));
+    } catch(error) {
+      if(inspection!==installationInspection || error.name==='AbortError') return;
+      el('installation-summary').textContent=error.message;
+      return;
+    }
+    if(inspection!==installationInspection) return;
+    inspectedInstallation=report;
+    const summary=[id,report.registered?.version || (report.directory_exists?'Unregistered build':'No build directory'),report.blocker];
+    el('installation-summary').textContent=summary.filter(Boolean).join(' · ');
+    el('installation-log').textContent=report.output || 'No build log available.';
+    el('build-upgrade-recovery').hidden=!report.pending_upgrade;
+    el('archive-failed-installation').hidden=!report.can_archive;
+    el('remove-inspected-installation').hidden=!report.registered || id===currentInstallation;
+    updateButtons();
+  });
+}
+el('reload-installation').onclick=()=>inspectInstallation(el('installation-inspector').dataset.id);
+el('build-upgrade-recovery').onclick=()=>focusUpgrade(inspectedInstallation?.pending_upgrade);
+el('inspect-installation').onclick=()=>inspectInstallation(el('installation').value);
+el('operation-installation-inspect').onclick=()=>inspectInstallation(inspectedOperation?.installation_id);
+el('upgrade-installation-inspect').onclick=()=>inspectInstallation(inspectedUpgrade?.installation_id);
 document.querySelectorAll('[data-action]').forEach(button=>button.onclick=async()=>{
   if(submitting) return;
   const currentSession=session;
   el('error').textContent='';
   const action=button.dataset.action, value={action};
   if(['install','upgrade'].includes(action)) value.target=el('version').value.trim();
+  else if(action==='install-git') {
+    value.target=el('bsm-git-ref').value.trim();
+    value.ref_kind=el('bsm-git-kind').value;
+    if(!value.target) {el('error').textContent='Enter a Git branch, tag, or commit.'; return;}
+    if(!confirm('Build '+value.ref_kind+' '+value.target+' from the official BSM repository? This runs its build code locally.')) return;
+    value.trust_source=true;
+  }
+  else if(action==='upgrade-installation') {
+    value.target=el('installation').value;
+    value.allow_same=el('upgrade-same-version').checked;
+  }
+  else if(['installation-archive-failed','installation-remove'].includes(action)) {
+    if(!inspectedInstallation) return;
+    value.target=inspectedInstallation.id;
+  }
   else if(action==='activate') value.target=el('installation').value;
   else if(['checkpoint-verify','restore-plan','checkpoint-restore'].includes(action)) value.target=el('checkpoint').value;
-  else if(action.startsWith('upgrade-')) {
+  else if(upgradeRecoveryActions.includes(action)) {
     if(!inspectedUpgrade?.recovery.includes(action.slice(8))) return;
     value.target=String(inspectedUpgrade.workflow.id);
   }
   else if(['acknowledge','restore-recover'].includes(action)) value.target=el('recovery').value;
-  if(!['start','install','checkpoint-verify','restore-plan'].includes(action)) {
+  if(!['start','install','install-git','checkpoint-verify','restore-plan'].includes(action)) {
     const prompt=action==='upgrade-cancel'
       ? 'Cancel upgrade #'+value.target+'? The supervisor may reselect and restart the original BSM version.'
-      : 'Run '+action+'? This may interrupt BSM. Offline actions also require confirmation that BSM is not running outside its managed service.';
+      : action==='installation-archive-failed'
+        ? 'Move '+value.target+' aside so it can be rebuilt? Stop BSM first. The original directory will be kept.'
+        : action==='installation-remove'
+          ? 'Permanently remove '+value.target+'? Stop BSM first.'
+          : 'Run '+action+'? This may interrupt BSM. Offline actions also require confirmation that BSM is not running outside its managed service.';
     if(!confirm(prompt)) return;
     if(currentSession!==session) return;
     value.confirmed=true;
   }
-  if(action==='upgrade') {if(!confirm('Allow BSM database migrations? Recovery may require restoring a checkpoint and discarding newer data.')) return; if(currentSession!==session) return; value.accept_migrations=true;}
+  if(['upgrade','upgrade-installation'].includes(action)) {if(!confirm('Allow BSM database migrations? Recovery may require restoring a checkpoint and discarding newer data.')) return; if(currentSession!==session) return; value.accept_migrations=true;}
   if(['checkpoint-restore','upgrade-restore'].includes(action)) {if(!confirm('Replace saved data and discard changes made since this checkpoint?')) return; if(currentSession!==session) return; value.restore_data=true;}
   submitting=true; updateButtons();
   try {const job=await request('actions',value); if(currentSession!==session) return; el('notice').textContent='Queued '+job.action+' · '+job.id;
-    if(action==='upgrade' || action.startsWith('upgrade-')) {
-      followedJob=job.id;
-      clearUpgrade();
-    }
+    if(action==='upgrade' || action.startsWith('upgrade-')) clearUpgrade();
+    if(action.startsWith('upgrade') || action.startsWith('install')) followedJob=job.id;
+    if(action.startsWith('installation-')) closeInstallation();
     await refresh();} catch(error) {if(error.name!=='AbortError' && currentSession===session) el('error').textContent=error.message;} finally {if(currentSession===session) {submitting=false;updateButtons();}}
 });
 setInterval(refresh,3000);
 
 let inspectedOperation=null, inspectedUpdate=null, olderBefore=null;
-function recoveryLock(){inspectedOperation=null;inspectedUpdate=null;olderBefore=null;el('history-more').hidden=false;for(const id of ['recovery-report','older-history','update-report','deployment-info'])el(id).textContent='';}
+function recoveryLock(){el('operation-installation-inspect').hidden=true;inspectedOperation=null;inspectedUpdate=null;olderBefore=null;el('history-more').hidden=false;for(const id of ['recovery-report','older-history','update-report','deployment-info'])el(id).textContent='';}
 async function recoveryRequest(task){const currentSession=session;try{await task();}catch(error){if(error.name!=='AbortError'&&currentSession===session)el('error').textContent=error.message;}}
-async function inspectOperation(){return recoveryRequest(async()=>{const id=el('recovery').value.trim();if(!/^[1-9][0-9]{0,14}$/.test(id))throw new Error('Enter an operation ID from history.');inspectedOperation=await request('recovery/operations/'+id);el('recovery-report').textContent=JSON.stringify(inspectedOperation,null,2);});}
+async function inspectOperation(){return recoveryRequest(async()=>{const id=el('recovery').value.trim();if(!/^[1-9][0-9]{0,14}$/.test(id))throw new Error('Enter an operation ID from history.');inspectedOperation=await request('recovery/operations/'+id);el('recovery-report').textContent=JSON.stringify(inspectedOperation,null,2);el('operation-installation-inspect').hidden=!inspectedOperation.installation_id;});}
 el('operation-inspect').onclick=inspectOperation;
-el('operation-acknowledge').onclick=()=>recoveryRequest(async()=>{const id=el('recovery').value.trim();if(!inspectedOperation||String(inspectedOperation.operation.id)!==id)throw new Error('Inspect this operation first.');if(!confirm(inspectedOperation.effect))return;await request('recovery/operations/'+id+'/acknowledge',{confirmed:true,digest:inspectedOperation.digest});inspectedOperation=null;el('recovery-report').textContent='Interruption acknowledged. No data restored and no service restarted.';await refresh();});
+el('operation-acknowledge').onclick=()=>recoveryRequest(async()=>{const id=el('recovery').value.trim();if(!inspectedOperation||String(inspectedOperation.operation.id)!==id)throw new Error('Inspect this operation first.');if(!confirm(inspectedOperation.effect))return;await request('recovery/operations/'+id+'/acknowledge',{confirmed:true,digest:inspectedOperation.digest});inspectedOperation=null;el('operation-installation-inspect').hidden=true;el('recovery-report').textContent='Interruption acknowledged. No data restored and no service restarted.';await refresh();});
 el('history-more').onclick=()=>recoveryRequest(async()=>{const report=await request('history'+(olderBefore?'?before='+olderBefore:''));const section=document.createElement('div');renderOperationRows(report.operations,section);el('older-history').append(section);olderBefore=report.next_before;el('history-more').hidden=!olderBefore;});
 el('update-inspect').onclick=()=>recoveryRequest(async()=>{inspectedUpdate=await request('recovery/update');el('update-report').textContent=JSON.stringify(inspectedUpdate,null,2);});
 el('update-cancel').onclick=()=>recoveryRequest(async()=>{if(!inspectedUpdate?.cancellable)throw new Error('Inspect the pending update first. Only an uninstalled preparing update can be cancelled.');if(!confirm(inspectedUpdate.effect))return;await request('recovery/update/cancel',{confirmed:true,digest:inspectedUpdate.digest});inspectedUpdate=null;el('update-report').textContent='Update plan archived. No rollback or service restart performed.';await refresh();});
@@ -286,6 +410,7 @@ function clearUpgrade() {
   el('upgrade-summary').textContent='';
   el('upgrade-steps').replaceChildren();
   el('upgrade-recovery').hidden=true;
+  el('upgrade-installation-inspect').hidden=true;
 }
 function renderUpgrades(workflows) {
   const select=el('upgrade-history'), previous=select.value;
@@ -305,6 +430,7 @@ el('upgrade-inspect').onclick=()=>recoveryRequest(async()=>{
   const report=await request('upgrades/'+id);
   if(inspection!==upgradeInspection || el('upgrade-history').value!==id) return;
   inspectedUpgrade=report;
+  el('upgrade-installation-inspect').hidden=!report.installation_id;
   const versions=report.original_version && report.target_version
     ? report.original_version+' → '+report.target_version : '';
   el('upgrade-summary').textContent=[

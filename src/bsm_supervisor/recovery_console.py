@@ -8,7 +8,7 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from uuid import uuid4
 
-from . import self_update, upgrades
+from . import cleanup, self_update, upgrades
 from .checkpoint_files import read_json, sync_directory
 from .config import Config
 from .launchguard import boot_identity, process_generation
@@ -90,11 +90,27 @@ def inspect_operation(config: Config, store: Store, operation_id: int) -> dict:
                 (operation_id,),
             )
         ]
+    installation_id = None
+    if row["action"].startswith("install:"):
+        installation_id = "release-" + row["action"].split(":", 1)[1]
+    elif row["action"].startswith("install-git:"):
+        for event in events:
+            if event["detail"].startswith("Installation target: "):
+                installation_id = Path(
+                    event["detail"].removeprefix("Installation target: ")
+                ).name
+                break
+    if installation_id is not None:
+        try:
+            cleanup.build_id(installation_id)
+        except ValueError:
+            installation_id = None
     value = {"operation": dict(row), "service": service_state(config)}
     return {
         **value,
         "digest": digest(value),
         "events": events,
+        "installation_id": installation_id,
         "event_limit": 500,
         "effect": (
             "Acknowledgement clears interruption bookkeeping; "
@@ -140,6 +156,7 @@ def inspect_upgrade(config: Config, store: Store, workflow_id: int) -> dict:
         "phase": plan["phase"] if plan else None,
         "original_version": plan["original"]["version"] if plan else None,
         "target_version": plan["target_version"] if plan else None,
+        "installation_id": plan["target_id"] if plan else None,
         "checkpoint_id": checkpoint_id,
         "last_error": plan.get("last_error") if plan else None,
         "steps": steps,
